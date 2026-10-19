@@ -368,6 +368,20 @@ class ReviewPipelineTests(unittest.TestCase):
         self.assertIsNone(args.dpcis)
         self.assertIsNone(args.from_month)
         self.assertIsNone(args.to_month)
+        self.assertIsNone(args.review_limit)
+
+    def test_cli_parses_current_month_for_selected_dpcis(self):
+        args = parse_args(
+            [
+                "--current-month",
+                "--dpcis",
+                "060-15-0108,097-02-2055",
+            ]
+        )
+
+        self.assertTrue(args.current_month)
+        self.assertEqual(args.dpcis, ["060-15-0108", "097-02-2055"])
+        self.assertIsNone(args.review_limit)
 
     def test_cli_rejects_non_positive_review_limit(self):
         with self.assertRaises(SystemExit):
@@ -497,7 +511,7 @@ class ReviewPipelineTests(unittest.TestCase):
         self.assertTrue(process.call_args.kwargs["save_reviews"])
         self.assertEqual(list(output_dir.glob("*.csv")), [])
 
-    def test_main_current_month_mode_loads_csv_without_writing_separate_csv(self):
+    def test_main_current_month_mode_uses_api_max_for_selected_dpcis(self):
         with TemporaryDirectory() as directory:
             output_dir = Path(directory)
             product_row = {"DPCI": "060-15-0108", "Status": "CF"}
@@ -513,7 +527,10 @@ class ReviewPipelineTests(unittest.TestCase):
                     output_dir / "combined.xlsx",
                 ),
                 patch("src.main.setup_logging"),
-                patch("src.main.load_dpcis", return_value=["060-15-0108"]) as load_dpcis_mock,
+                patch(
+                    "src.main.load_dpcis",
+                    return_value=["060-15-0108", "097-02-2055"],
+                ) as load_dpcis_mock,
                 patch(
                     "src.main.load_dpci_library",
                     return_value={"060-15-0108": {"Program": "BEDDING", "Status": "CF"}},
@@ -526,11 +543,28 @@ class ReviewPipelineTests(unittest.TestCase):
                 ) as process_mock,
                 patch("src.main.write_products_and_reviews_excel"),
             ):
-                self.assertEqual(main(["--current-month"]), 0)
+                self.assertEqual(
+                    main(
+                        [
+                            "--current-month",
+                            "--dpcis",
+                            "060-15-0108,097-02-2055",
+                        ]
+                    ),
+                    0,
+                )
 
-        self.assertIsNone(load_dpcis_mock.call_args.kwargs["only"])
+        self.assertEqual(
+            load_dpcis_mock.call_args.kwargs["only"],
+            ["060-15-0108", "097-02-2055"],
+        )
+        self.assertEqual(process_mock.call_count, 2)
         month = date.today().year, date.today().month
         self.assertEqual(process_mock.call_args.kwargs["review_month_range"], (month, month))
+        self.assertEqual(
+            process_mock.call_args.kwargs["review_limit"],
+            2550,
+        )
         self.assertTrue(process_mock.call_args.kwargs["save_reviews"])
         self.assertEqual(list(output_dir.glob("*.csv")), [])
 

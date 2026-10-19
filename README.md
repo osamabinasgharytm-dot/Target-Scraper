@@ -38,7 +38,10 @@ python -m src.main --review-limit 100
 python -m src.main --dpci 062-18-0006
 
 # Selected DPCIs — export current-month reviews to the combined workbook
-python -m src.main --dpcis 060-15-0108,097-02-2055
+# Fetch current-month reviews for selected DPCIs up to Target's API maximum
+python -m src.main --current-month --dpcis 060-15-0108,097-02-2055
+
+python -m src.main --dpcis 062-16-0107,062-18-0006,062-18-7656,062-18-3875,062-18-4136,062-18-8968,062-18-7220,062-18-4194,062-18-8027,062-18-7982,062-18-0950,062-18-4127,062-18-3353
 
 # All DPCIs from dpcis.csv — export current-month reviews
 python -m src.main --current-month
@@ -69,7 +72,7 @@ Separate product and review CSV files are disabled. Product summaries and select
 |------|-------------|
 | `--csv PATH` | Input CSV (default `dpcis.csv`) |
 | `--limit N` | Process only first N DPCIs |
-| `--review-limit N` | Maximum reviews fetched per DPCI (default: 50) |
+| `--review-limit N` | Maximum reviews fetched per DPCI (default: 50; with `--current-month`, defaults to Target's API maximum) |
 | `--dpci ###-##-####` | Process one DPCI |
 | `--dpcis DPCI1,DPCI2,...` | Process a comma-separated list of specific DPCIs |
 | `--from-month YYYY-MM` | First month to include in the Excel review export; without `--dpci`/`--dpcis`, process DPCIs from `--csv` |
@@ -77,7 +80,7 @@ Separate product and review CSV files are disabled. Product summaries and select
 | `--excel-output PATH` | Excel output path for a month-range export |
 | `--workbook-output PATH` | Output path for the combined workbook (default: `output/<Current Month> Target Data.xlsx`) |
 | `--save-reviews` | Deprecated; review rows are included in the combined workbook automatically |
-| `--current-month` | Read DPCIs from the input CSV and export only current-month reviews |
+| `--current-month` | Export current-month reviews; reads DPCIs from `dpcis.csv` unless `--dpci` or `--dpcis` is supplied; defaults to the API maximum review count |
 
 ## Products sheet columns
 
@@ -97,7 +100,7 @@ Separate product and review CSV files are disabled. Product summaries and select
 
 Some DPCIs may return `not_found` if the item is no longer searchable on Target.com.
 For a month-range export of all DPCIs in `dpcis.csv`, pass `--from-month` and `--to-month`; use `--csv PATH` to select a different input file. To limit the export to chosen products, also pass `--dpcis` (or one `--dpci`). Both month endpoints are included. Matching reviews are written to Excel.
-Reviews are fetched newest-first, up to `--review-limit` per DPCI (default `50`). Increase the limit when exporting older months; the Target API supports at most 2,550 reviews per product.
+Reviews are fetched newest-first, up to `--review-limit` per DPCI (default `50`). In current-month mode the default is the API maximum (2,550 reviews per product with the default page size of 50); pass `--review-limit` to set a lower explicit limit. Target supports at most 51 pages of 50 reviews per product.
 The combined workbook's `Reviews` sheet includes the VADER sentiment, normalized score (-1 to +1), and individual satisfaction percentage (0 to 100). Only negative reviews are matched case-insensitively against whole words and contiguous phrases in `DEFECTS LIST.xlsx`; matching `Reason`, source `Sub Category` (shown as `Defect` in the review sheet), and `Main Category` are written in adjacent columns after `Review Text`. Multiple matches are joined with ` | `. Positive and neutral reviews show `-` in all three defect columns. The `Products` sheet includes mean satisfaction per product; positive/negative/neutral percentages are based on the VADER labels.
 
 ## Power BI

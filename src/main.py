@@ -79,7 +79,10 @@ def _positive_int(value: str) -> int:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Scrape Target.com product + reviews for DPCIs, run sentiment, write CSV."
+        description=(
+            "Scrape Target.com products and reviews for DPCIs, run sentiment, "
+            "and write Excel workbooks."
+        )
     )
     parser.add_argument(
         "--csv",
@@ -96,9 +99,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--review-limit",
         type=_positive_int,
-        default=config.REVIEW_LIMIT,
+        default=None,
         metavar="N",
-        help=f"Maximum reviews to fetch per DPCI (default: {config.REVIEW_LIMIT})",
+        help=(
+            "Maximum reviews to fetch per DPCI "
+            f"(default: {config.REVIEW_LIMIT}; --current-month defaults to "
+            f"the API maximum of {config.MAX_API_REVIEW_LIMIT})"
+        ),
     )
     parser.add_argument(
         "--dpci",
@@ -146,7 +153,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--current-month",
         action="store_true",
-        help="Export current-month reviews for DPCIs from the input CSV",
+        help=(
+            "Export current-month reviews; use --dpcis for selected DPCIs "
+            "(defaults to the API review maximum per DPCI)"
+        ),
     )
     return parser.parse_args(argv)
 
@@ -260,8 +270,8 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(config.RUN_LOG)
 
     has_month_range = args.from_month is not None or args.to_month is not None
-    if args.current_month and (args.dpci or args.dpcis or has_month_range):
-        logger.error("--current-month uses the input CSV and cannot be combined with DPCI or month-range flags")
+    if args.current_month and has_month_range:
+        logger.error("--current-month cannot be combined with month-range flags")
         return 1
     if (args.from_month is None) != (args.to_month is None):
         logger.error("--from-month and --to-month must be provided together")
@@ -289,6 +299,9 @@ def main(argv: list[str] | None = None) -> int:
     if not dpcis:
         logger.error("No DPCIs to process")
         return 1
+    review_limit = args.review_limit or (
+        config.MAX_API_REVIEW_LIMIT if args.current_month else config.REVIEW_LIMIT
+    )
 
     run_date = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if has_month_range:
@@ -318,7 +331,7 @@ def main(argv: list[str] | None = None) -> int:
             review_month_range=review_month_range,
             library_fields=library_fields,
             defects_library=defects_library,
-            review_limit=args.review_limit,
+            review_limit=review_limit,
         )
         product_rows.append(row)
         review_rows.extend(reviews)

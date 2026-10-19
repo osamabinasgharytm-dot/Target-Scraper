@@ -27,6 +27,7 @@ RUN_LOG = OUTPUT_DIR / "run.log"
 REQUEST_DELAY_SECONDS = float(os.getenv("REQUEST_DELAY_SECONDS", "1.2"))
 REVIEW_PAGE_SIZE = int(os.getenv("REVIEW_PAGE_SIZE", "50"))
 REVIEW_LIMIT = int(os.getenv("REVIEW_LIMIT", "50"))
+MAX_API_REVIEW_LIMIT = 51 * min(max(REVIEW_PAGE_SIZE, 1), 50)
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "30"))
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
 
@@ -70,16 +71,16 @@ REVIEW_COLUMNS = [
     "Review Rating",
     "Review Title",
     "Review Text",
-    "Reason",
-    "Defect",
-    "Main Category",
     "Clean Text",
     "Date Posted",
     "Image URLs",
-    "Sentiment",
     "Remark",
-    "Satisfaction Percentage",
+    "Reason",
+    "Defect",
+    "Main Category",
+    "Sentiment",
     "Sentiment Score",
+    "Satisfaction Percentage",
     # "Run Date",
 ]
 
