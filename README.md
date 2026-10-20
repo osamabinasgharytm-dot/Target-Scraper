@@ -1,4 +1,5 @@
-# Target.com Product Scraper (v1)
+<img width="1920" height="2571" alt="image" src="https://github.com/user-attachments/assets/ae615117-bd6e-4bec-b5c9-cd50dfe62952" />
+# Target.com Product Scraper (v1.1)
 
 On-demand Python pipeline that:
 
