@@ -72,6 +72,9 @@ def aggregate_product_row(
         "Top Remark": top_remark,
         "Run Date": run_date,
         "Status": product_fields.get("Status", status),
+        "Website Status": (
+            "Found" if status == "ok" else "Not Found" if status == "not_found" else "Error"
+        ),
         "TCIN": product_fields.get("TCIN", ""),
     }
     # Ensure all expected columns exist

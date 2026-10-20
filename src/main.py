@@ -85,10 +85,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         )
     )
     parser.add_argument(
-        "--csv",
+        "--dpci-library",
         type=str,
-        default=str(config.DPCI_CSV),
-        help="Path to DPCI input CSV (default: dpcis.csv)",
+        default=str(config.DPCI_LIBRARY_XLSX),
+        help="Excel workbook used as the DPCI source (default: DPCI LIBRARY.xlsx)",
     )
     parser.add_argument(
         "--limit",
@@ -155,6 +155,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help=(
             "Export current-month reviews; use --dpcis for selected DPCIs "
+            "(defaults to the API review maximum per DPCI)"
+        ),
+    )
+    parser.add_argument(
+        "--all-current-month",
+        action="store_true",
+        help=(
+            "Export current-month reviews for every DPCI in the DPCI library "
             "(defaults to the API review maximum per DPCI)"
         ),
     )
@@ -270,14 +278,18 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(config.RUN_LOG)
 
     has_month_range = args.from_month is not None or args.to_month is not None
-    if args.current_month and has_month_range:
-        logger.error("--current-month cannot be combined with month-range flags")
+    is_current_month = args.current_month or args.all_current_month
+    if is_current_month and has_month_range:
+        logger.error("Current-month mode cannot be combined with month-range flags")
         return 1
     if (args.from_month is None) != (args.to_month is None):
         logger.error("--from-month and --to-month must be provided together")
         return 1
     if args.dpci and args.dpcis:
         logger.error("Use either --dpci or --dpcis, not both")
+        return 1
+    if args.all_current_month and (args.dpci or args.dpcis):
+        logger.error("--all-current-month cannot be combined with --dpci or --dpcis")
         return 1
     if args.from_month and args.to_month and args.from_month > args.to_month:
         logger.error("--from-month must be earlier than or equal to --to-month")
@@ -286,11 +298,15 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("--excel-output requires --from-month and --to-month")
         return 1
 
-    csv_path = Path(args.csv)
-    requested_dpcis: str | list[str] | None = args.dpci or args.dpcis
+    requested_dpcis: str | list[str] | None = (
+        None if args.all_current_month else args.dpci or args.dpcis
+    )
     try:
-        dpcis = load_dpcis(csv_path, limit=args.limit, only=requested_dpcis)
-        dpci_library = load_dpci_library(config.DPCI_LIBRARY_XLSX)
+        dpci_library = load_dpci_library(Path(args.dpci_library))
+        dpcis = load_dpcis(
+            limit=args.limit,
+            only=requested_dpcis or list(dpci_library),
+        )
         defects_library = load_defects_library(config.DEFECTS_LIBRARY_XLSX)
     except (FileNotFoundError, ValueError) as exc:
         logger.error("%s", exc)
@@ -300,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("No DPCIs to process")
         return 1
     review_limit = args.review_limit or (
-        config.MAX_API_REVIEW_LIMIT if args.current_month else config.REVIEW_LIMIT
+        config.MAX_API_REVIEW_LIMIT if is_current_month else config.REVIEW_LIMIT
     )
 
     run_date = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

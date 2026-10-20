@@ -6,9 +6,10 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from src.aggregator import aggregate_product_row
-from src.config import PRODUCTS_AND_REVIEWS_XLSX, PRODUCT_COLUMNS
+from src.aggregator import aggregate_product_row, empty_error_row
+from src.config import DPCI_LIBRARY_XLSX, PRODUCTS_AND_REVIEWS_XLSX, PRODUCT_COLUMNS
 from src.csv_writer import write_products_and_reviews_excel, write_reviews_excel
+from src.dashboard import write_dashboard
 from src.defect_library import match_defects
 from src.dpci_loader import load_dpcis
 from src.main import main, parse_args, process_one
@@ -360,15 +361,30 @@ class ReviewPipelineTests(unittest.TestCase):
         self.assertEqual(args.limit, 3)
         self.assertEqual(args.review_limit, 120)
 
-    def test_cli_parses_current_month_csv_mode(self):
+    def test_cli_parses_current_month_library_mode(self):
         args = parse_args(["--current-month"])
 
         self.assertTrue(args.current_month)
+        self.assertFalse(args.all_current_month)
+        self.assertEqual(args.dpci_library, str(DPCI_LIBRARY_XLSX))
         self.assertIsNone(args.dpci)
         self.assertIsNone(args.dpcis)
         self.assertIsNone(args.from_month)
         self.assertIsNone(args.to_month)
         self.assertIsNone(args.review_limit)
+
+    def test_cli_parses_all_current_month_mode(self):
+        args = parse_args(["--all-current-month"])
+
+        self.assertTrue(args.all_current_month)
+        self.assertFalse(args.current_month)
+        self.assertIsNone(args.dpci)
+        self.assertIsNone(args.dpcis)
+
+    def test_cli_allows_overriding_dpci_library_path(self):
+        args = parse_args(["--dpci-library", "custom-library.xlsx"])
+
+        self.assertEqual(args.dpci_library, "custom-library.xlsx")
 
     def test_cli_parses_current_month_for_selected_dpcis(self):
         args = parse_args(
@@ -390,13 +406,12 @@ class ReviewPipelineTests(unittest.TestCase):
     def test_selected_dpcis_are_validated_and_deduplicated(self):
         self.assertEqual(
             load_dpcis(
-                Path("unused.csv"),
                 only=["060-15-0108", "097-02-2055", "060-15-0108"],
             ),
             ["060-15-0108", "097-02-2055"],
         )
         with self.assertRaises(ValueError):
-            load_dpcis(Path("unused.csv"), only=["invalid"])
+            load_dpcis(only=["invalid"])
 
     def test_write_reviews_excel_creates_xlsx_with_review_columns(self):
         with TemporaryDirectory() as directory:
@@ -421,6 +436,48 @@ class ReviewPipelineTests(unittest.TestCase):
         self.assertEqual(result.loc[0, "Review Text"], "Works very well")
         self.assertIn("Sentiment Score", result.columns)
         self.assertIn("Satisfaction Percentage", result.columns)
+
+    def test_write_dashboard_embeds_data_and_escapes_script_content(self):
+        with TemporaryDirectory() as directory:
+            output_path = Path(directory) / "dashboard.html"
+            write_dashboard(
+                [{"DPCI": "060-15-0108", "Item Description": "Sheet Set"}],
+                [{"DPCI": "060-15-0108", "Review Text": "</script><script>alert(1)</script>"}],
+                output_path,
+            )
+
+            dashboard = output_path.read_text(encoding="utf-8")
+
+        self.assertIn("Target Product Insights", dashboard)
+        self.assertIn('id="theme-toggle"', dashboard)
+        self.assertIn('data-theme="dark"', dashboard)
+        self.assertIn("target-dashboard-theme", dashboard)
+        self.assertIn('aria-label="Customer review pages"', dashboard)
+        self.assertIn("const reviewsPerPage = 25", dashboard)
+        self.assertIn("reviews-previous", dashboard)
+        self.assertIn("reviews-next", dashboard)
+        self.assertIn("filtered.slice(start,start+reviewsPerPage)", dashboard)
+        self.assertIn("Sheet Set", dashboard)
+        self.assertIn(r"\u003c", dashboard)
+        self.assertIn(r"\u003e", dashboard)
+        self.assertNotIn("</script><script>alert(1)</script>", dashboard)
+
+    def test_combined_excel_export_generates_matching_dashboard(self):
+        with TemporaryDirectory() as directory:
+            workbook_path = Path(directory) / "products.xlsx"
+            dashboard_path = Path(directory) / "products Dashboard.html"
+            write_products_and_reviews_excel(
+                [{"DPCI": "060-15-0108", "Item Description": "Sheet Set"}],
+                [{"DPCI": "060-15-0108", "Review Text": "Very comfortable"}],
+                workbook_path,
+            )
+
+            self.assertTrue(workbook_path.exists())
+            self.assertTrue(dashboard_path.exists())
+            dashboard = dashboard_path.read_text(encoding="utf-8")
+
+        self.assertIn("Sheet Set", dashboard)
+        self.assertIn("Very comfortable", dashboard)
 
     def test_write_combined_excel_creates_products_and_reviews_sheets(self):
         with TemporaryDirectory() as directory:
@@ -465,6 +522,12 @@ class ReviewPipelineTests(unittest.TestCase):
         )
         self.assertEqual(reviews.loc[0, "Sentiment Score"], 0.8)
         self.assertEqual(reviews.loc[0, "Satisfaction Percentage"], 90.0)
+        dashboard_path = output_path.with_name("combined Dashboard.html")
+        self.assertTrue(dashboard_path.exists())
+        dashboard = dashboard_path.read_text(encoding="utf-8")
+        self.assertIn("Target Product Insights", dashboard)
+        self.assertIn("Comfortable", dashboard)
+        self.assertIn("Review sentiment", dashboard)
 
     def test_main_writes_combined_workbook_without_separate_csv_files(self):
         with TemporaryDirectory() as directory:
@@ -480,11 +543,11 @@ class ReviewPipelineTests(unittest.TestCase):
                 patch("src.main.config.OUTPUT_DIR", output_dir),
                 patch("src.main.config.RUN_LOG", output_dir / "run.log"),
                 patch("src.main.setup_logging"),
-                patch("src.main.load_dpcis", return_value=["060-15-0108"]),
+                patch("src.main.load_dpcis", return_value=["060-15-0108"]) as load_dpcis_mock,
                 patch(
                     "src.main.load_dpci_library",
                     return_value={"060-15-0108": {"Program": "BEDDING", "Status": "CF"}},
-                ),
+                ) as library_loader_mock,
                 patch("src.main.load_defects_library", return_value=[]),
                 patch("src.main.TargetClient"),
                 patch(
@@ -508,6 +571,14 @@ class ReviewPipelineTests(unittest.TestCase):
         self.assertEqual(reviews.loc[0, "Review Text"], "Comfortable")
         self.assertEqual(reviews.loc[0, "Sentiment Score"], 0.8)
         self.assertEqual(reviews.loc[0, "Satisfaction Percentage"], 90.0)
+        self.assertEqual(
+            load_dpcis_mock.call_args.kwargs["only"],
+            ["060-15-0108"],
+        )
+        self.assertEqual(
+            library_loader_mock.call_args.args[0],
+            DPCI_LIBRARY_XLSX,
+        )
         self.assertTrue(process.call_args.kwargs["save_reviews"])
         self.assertEqual(list(output_dir.glob("*.csv")), [])
 
@@ -567,6 +638,47 @@ class ReviewPipelineTests(unittest.TestCase):
         )
         self.assertTrue(process_mock.call_args.kwargs["save_reviews"])
         self.assertEqual(list(output_dir.glob("*.csv")), [])
+
+    def test_main_all_current_month_uses_every_library_dpci(self):
+        with TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+            library_dpcis = ["060-15-0108", "097-02-2055", "062-18-0006"]
+            with (
+                patch("src.main.config.OUTPUT_DIR", output_dir),
+                patch("src.main.config.RUN_LOG", output_dir / "run.log"),
+                patch("src.main.setup_logging"),
+                patch(
+                    "src.main.load_dpci_library",
+                    return_value={
+                        dpci: {"Program": "BEDDING", "Status": "CF"}
+                        for dpci in library_dpcis
+                    },
+                ),
+                patch("src.main.load_defects_library", return_value=[]),
+                patch("src.main.TargetClient"),
+                patch("src.main.process_one", return_value=({}, [], "ok")) as process_mock,
+                patch("src.main.write_products_and_reviews_excel"),
+            ):
+                self.assertEqual(main(["--all-current-month"]), 0)
+
+        self.assertEqual(process_mock.call_count, len(library_dpcis))
+        self.assertEqual(
+            [call.args[1] for call in process_mock.call_args_list],
+            library_dpcis,
+        )
+        self.assertTrue(
+            all(
+                call.kwargs["review_limit"] == 2550
+                for call in process_mock.call_args_list
+            )
+        )
+        month = date.today().year, date.today().month
+        self.assertTrue(
+            all(
+                call.kwargs["review_month_range"] == (month, month)
+                for call in process_mock.call_args_list
+            )
+        )
 
     def test_process_reviews_includes_posted_date_and_image_urls(self):
         reviews = process_reviews(
@@ -660,6 +772,16 @@ class ReviewPipelineTests(unittest.TestCase):
         )
 
         self.assertEqual(row["Average Satisfaction %"], 55.0)
+
+    def test_product_rows_distinguish_website_presence_from_scrape_errors(self):
+        found = aggregate_product_row({"DPCI": "060-15-0108"}, [], status="ok")
+        not_found = empty_error_row("097-02-2055", "not_found")
+        error = empty_error_row("062-18-0006", "error:request failed")
+
+        self.assertEqual(found["Website Status"], "Found")
+        self.assertEqual(not_found["Website Status"], "Not Found")
+        self.assertEqual(error["Website Status"], "Error")
+        self.assertIn("Website Status", PRODUCT_COLUMNS)
 
     def test_fetch_reviews_matches_separate_photo_records(self):
         client = TargetClient.__new__(TargetClient)

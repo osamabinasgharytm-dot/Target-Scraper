@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.config import PRODUCT_COLUMNS, REVIEW_COLUMNS
+from src.dashboard import write_dashboard
 
 logger = logging.getLogger("scrapper")
 
@@ -47,6 +48,11 @@ def write_products_and_reviews_excel(
     with pd.ExcelWriter(path) as writer:
         products_df.to_excel(writer, sheet_name="Products", index=False)
         reviews_df.to_excel(writer, sheet_name="Reviews", index=False)
+    write_dashboard(
+        products_df.to_dict(orient="records"),
+        reviews_df.to_dict(orient="records"),
+        path.with_name(f"{path.stem} Dashboard.html"),
+    )
     logger.info(
         "Wrote %d product rows and %d review rows -> %s",
         len(products_df),
