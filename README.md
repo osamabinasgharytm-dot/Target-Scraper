@@ -1,4 +1,4 @@
-# Target.com Product Scraper (v1.1)
+# Target.com Product Scraper (v1)
 
 On-demand Python pipeline that:
 
