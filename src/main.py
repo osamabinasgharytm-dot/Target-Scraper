@@ -11,9 +11,12 @@ from pathlib import Path
 from src import config
 from src.aggregator import aggregate_product_row, empty_error_row
 from src.csv_writer import (
+    append_products_and_reviews_excel,
+    load_website_error_dpcis,
     write_products_and_reviews_excel,
     write_reviews_excel,
 )
+from src.dashboard import write_dashboard_from_excel
 from src.defect_library import load_defects_library, match_defects
 from src.dpci_library import load_dpci_library
 from src.dpci_loader import load_dpcis
@@ -166,6 +169,36 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "(defaults to the API review maximum per DPCI)"
         ),
     )
+    parser.add_argument(
+        "--retry-errors",
+        action="store_true",
+        help=(
+            "Re-scrape DPCIs whose latest Website Status in the combined workbook "
+            "is Error, then append results without removing previous rows"
+        ),
+    )
+    parser.add_argument(
+        "--update-reviews",
+        action="store_true",
+        help=(
+            "Scrape current-month reviews for all library DPCIs and append only "
+            "new reviews to the existing combined workbook"
+        ),
+    )
+    parser.add_argument(
+        "--create-dashboard",
+        action="store_true",
+        help="Generate a dashboard from this month's existing combined Excel workbook",
+    )
+    parser.add_argument(
+        "--dashboard-workbook",
+        type=str,
+        default=None,
+        help=(
+            "Excel workbook to use with --create-dashboard "
+            "(default: this month's workbook in the output folder)"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -236,6 +269,7 @@ def process_one(
                 {
                     "DPCI": dpci,
                     "TCIN": tcin,
+                    "Review ID": rev.get("Review ID", ""),
                     "Review Rating": rev.get("Rating", ""),
                     "Review Title": rev.get("Title", ""),
                     "Review Text": rev.get("Text", ""),
@@ -277,8 +311,43 @@ def main(argv: list[str] | None = None) -> int:
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     setup_logging(config.RUN_LOG)
 
+    if args.dashboard_workbook and not args.create_dashboard:
+        logger.error("--dashboard-workbook requires --create-dashboard")
+        return 1
+    if args.create_dashboard:
+        if (
+            args.dpci
+            or args.dpcis
+            or args.from_month is not None
+            or args.to_month is not None
+            or args.current_month
+            or args.all_current_month
+            or args.retry_errors
+            or args.update_reviews
+            or args.limit is not None
+            or args.review_limit is not None
+            or args.excel_output
+        ):
+            logger.error("--create-dashboard cannot be combined with scrape options")
+            return 1
+        workbook_path = Path(
+            args.dashboard_workbook or config.PRODUCTS_AND_REVIEWS_XLSX
+        )
+        try:
+            dashboard_path = write_dashboard_from_excel(workbook_path)
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            logger.error("%s", exc)
+            return 1
+        logger.info("Dashboard created from existing workbook -> %s", dashboard_path)
+        return 0
+
     has_month_range = args.from_month is not None or args.to_month is not None
-    is_current_month = args.current_month or args.all_current_month
+    is_current_month = (
+        args.current_month
+        or args.all_current_month
+        or args.retry_errors
+        or args.update_reviews
+    )
     if is_current_month and has_month_range:
         logger.error("Current-month mode cannot be combined with month-range flags")
         return 1
@@ -290,6 +359,29 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if args.all_current_month and (args.dpci or args.dpcis):
         logger.error("--all-current-month cannot be combined with --dpci or --dpcis")
+        return 1
+    if args.retry_errors and (
+        args.dpci
+        or args.dpcis
+        or args.current_month
+        or args.all_current_month
+        or has_month_range
+    ):
+        logger.error(
+            "--retry-errors cannot be combined with DPCI selection or month flags"
+        )
+        return 1
+    if args.update_reviews and (
+        args.dpci
+        or args.dpcis
+        or args.current_month
+        or args.all_current_month
+        or args.retry_errors
+        or has_month_range
+    ):
+        logger.error(
+            "--update-reviews cannot be combined with DPCI selection or other month modes"
+        )
         return 1
     if args.from_month and args.to_month and args.from_month > args.to_month:
         logger.error("--from-month must be earlier than or equal to --to-month")
@@ -303,10 +395,27 @@ def main(argv: list[str] | None = None) -> int:
     )
     try:
         dpci_library = load_dpci_library(Path(args.dpci_library))
-        dpcis = load_dpcis(
-            limit=args.limit,
-            only=requested_dpcis or list(dpci_library),
-        )
+        if args.update_reviews:
+            workbook_path = Path(args.workbook_output)
+            if not workbook_path.is_file():
+                raise FileNotFoundError(
+                    f"Combined workbook not found for review update: {workbook_path}"
+                )
+            dpcis = load_dpcis(limit=args.limit, only=list(dpci_library))
+        elif args.retry_errors:
+            retry_dpcis = load_website_error_dpcis(Path(args.workbook_output))
+            if not retry_dpcis:
+                logger.info(
+                    "No DPCIs with latest Website Status Error in %s",
+                    args.workbook_output,
+                )
+                return 0
+            dpcis = load_dpcis(limit=args.limit, only=retry_dpcis)
+        else:
+            dpcis = load_dpcis(
+                limit=args.limit,
+                only=requested_dpcis or list(dpci_library),
+            )
         defects_library = load_defects_library(config.DEFECTS_LIBRARY_XLSX)
     except (FileNotFoundError, ValueError) as exc:
         logger.error("%s", exc)
@@ -359,11 +468,18 @@ def main(argv: list[str] | None = None) -> int:
         else:
             errors += 1
 
-    write_products_and_reviews_excel(
-        product_rows,
-        review_rows,
-        Path(args.workbook_output),
-    )
+    if args.retry_errors or args.update_reviews:
+        append_products_and_reviews_excel(
+            product_rows,
+            review_rows,
+            Path(args.workbook_output),
+        )
+    else:
+        write_products_and_reviews_excel(
+            product_rows,
+            review_rows,
+            Path(args.workbook_output),
+        )
     if has_month_range:
         excel_path = Path(args.excel_output or config.REVIEWS_RANGE_XLSX)
         write_reviews_excel(review_rows, excel_path)

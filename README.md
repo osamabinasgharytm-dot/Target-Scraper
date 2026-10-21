@@ -1,6 +1,4 @@
-<img width="1920" height="2571" alt="image" src="https://github.com/user-attachments/assets/ae615117-bd6e-4bec-b5c9-cd50dfe62952" />
-
-## Target.com Product Scraper (v1.1)
+# Target.com Product Scraper (v1)
 
 On-demand Python pipeline that:
 
@@ -49,6 +47,15 @@ python -m src.main --dpcis 062-16-0107,062-18-0006,062-18-7656,062-18-3875,062-1
 # This can take several hours when the library contains thousands of DPCIs.
 python -m src.main --all-current-month
 
+# Recreate the dashboard from this month's existing Excel workbook without scraping
+python -m src.main --create-dashboard
+
+# Retry products whose latest Website Status is Error and append the results
+python -m src.main --retry-errors
+
+# Daily update — scrape current-month reviews for all library products and append only new reviews
+python -m src.main --update-reviews
+
 # Selected DPCIs — fetch up to 2,550 reviews each, then export August–September 2026
 python -m src.main --dpcis 060-15-0108,097-02-2055 --review-limit 2550 --from-month 2026-08 --to-month 2026-09
 
@@ -69,7 +76,7 @@ python -m src.main
 | `output/run.log` | Run log |
 
 Separate product and review CSV files are disabled. Product summaries and selected reviews are written to the combined workbook.
-After each combined workbook export, open the matching dashboard HTML file in a browser to explore summary metrics, rating and sentiment charts, searchable products, and searchable, filterable, paginated reviews (25 per page). Use the dashboard's Dark mode / Light mode button to switch themes; the selection is remembered in that browser. The dashboard is self-contained and works offline.
+After each combined workbook export, open the matching dashboard HTML file in a browser to explore summary metrics, rating and sentiment charts, searchable products with library/website status filters and numbered pagination (25 per page), and searchable, filterable, numbered review pagination (25 per page). Products are shown once per DPCI, using the latest row when retries have appended duplicate DPCIs. Use the dashboard's Dark mode / Light mode button to switch themes; the selection is remembered in that browser. The dashboard is self-contained and works offline.
 
 ### CLI flags
 
@@ -87,6 +94,10 @@ After each combined workbook export, open the matching dashboard HTML file in a 
 | `--save-reviews` | Deprecated; review rows are included in the combined workbook automatically |
 | `--current-month` | Export current-month reviews; reads DPCIs from `DPCI LIBRARY.xlsx` unless `--dpci` or `--dpcis` is supplied; defaults to the API maximum review count |
 | `--all-current-month` | Export current-month reviews for every DPCI in `DPCI LIBRARY.xlsx`; defaults to the API maximum per DPCI and cannot be combined with `--dpci` or `--dpcis` |
+| `--create-dashboard` | Regenerate this month's dashboard from its existing workbook without scraping |
+| `--dashboard-workbook PATH` | Workbook to use with `--create-dashboard` (default: this month's workbook in `output`) |
+| `--retry-errors` | Re-scrape DPCIs whose latest `Website Status` is `Error` in the combined workbook and append new product/review rows without removing previous data |
+| `--update-reviews` | Scrape current-month reviews for every DPCI in the library and append only reviews not already in the existing combined workbook; keeps existing review history |
 
 ## Products sheet columns
 
@@ -106,9 +117,11 @@ After each combined workbook export, open the matching dashboard HTML file in a 
 | TCIN | Target item number |
 
 Some DPCIs may return `not_found` if the item is no longer searchable on Target.com.
+Use `--retry-errors` to retry DPCIs whose latest Products-sheet row has `Website Status` set to `Error`. New results are appended to the existing workbook; prior rows remain as history. If a retry succeeds, earlier `Error` statuses for that DPCI are changed to `Resolved`; unsuccessful retries remain `Error`. The command uses current-month reviews and the API maximum by default. It retries the latest error row per DPCI, so a later `Found` result prevents that DPCI from being retried again.
+Use `--update-reviews` for a daily current-month refresh across all DPCIs in the library. It requires the combined workbook to already exist, appends product summaries and only new reviews to its existing sheets, and leaves existing review rows intact. Review IDs prevent duplicates; for older workbook rows without IDs, DPCI, date, rating, title, and review text are used to detect duplicates. The API maximum is requested by default; pass `--review-limit N` to lower the per-product fetch limit.
 For a month-range export of all DPCIs in `DPCI LIBRARY.xlsx`, pass `--from-month` and `--to-month`; use `--dpci-library PATH` to select a different workbook. To limit the export to chosen products, also pass `--dpcis` (or one `--dpci`). Both month endpoints are included. Matching reviews are written to Excel.
 Reviews are fetched newest-first, up to `--review-limit` per DPCI (default `50`). In current-month mode the default is the API maximum (2,550 reviews per product with the default page size of 50); pass `--review-limit` to set a lower explicit limit. Target supports at most 51 pages of 50 reviews per product.
-The combined workbook's `Reviews` sheet includes the VADER sentiment, normalized score (-1 to +1), and individual satisfaction percentage (0 to 100). Only negative reviews are matched case-insensitively against whole words and contiguous phrases in `DEFECTS LIST.xlsx`; matching `Reason`, source `Sub Category` (shown as `Defect` in the review sheet), and `Main Category` are written in adjacent columns after `Review Text`. Multiple matches are joined with ` | `. Positive and neutral reviews show `-` in all three defect columns. The `Products` sheet includes mean satisfaction per product; positive/negative/neutral percentages are based on the VADER labels.
+The combined workbook's `Reviews` sheet includes the Target `Review ID`, VADER sentiment, normalized score (-1 to +1), and individual satisfaction percentage (0 to 100). Only negative reviews are matched case-insensitively against whole words and contiguous phrases in `DEFECTS LIST.xlsx`; matching `Reason`, source `Sub Category` (shown as `Defect` in the review sheet), and `Main Category` are written in adjacent columns after `Review Text`. Multiple matches are joined with ` | `. Positive and neutral reviews show `-` in all three defect columns. The `Products` sheet includes mean satisfaction per product; positive/negative/neutral percentages are based on the VADER labels.
 
 ## Power BI
 

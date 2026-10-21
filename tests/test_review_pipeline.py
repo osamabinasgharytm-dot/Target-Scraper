@@ -8,8 +8,13 @@ import pandas as pd
 
 from src.aggregator import aggregate_product_row, empty_error_row
 from src.config import DPCI_LIBRARY_XLSX, PRODUCTS_AND_REVIEWS_XLSX, PRODUCT_COLUMNS
-from src.csv_writer import write_products_and_reviews_excel, write_reviews_excel
-from src.dashboard import write_dashboard
+from src.csv_writer import (
+    append_products_and_reviews_excel,
+    load_website_error_dpcis,
+    write_products_and_reviews_excel,
+    write_reviews_excel,
+)
+from src.dashboard import write_dashboard, write_dashboard_from_excel
 from src.defect_library import match_defects
 from src.dpci_loader import load_dpcis
 from src.main import main, parse_args, process_one
@@ -113,6 +118,7 @@ class ReviewPipelineTests(unittest.TestCase):
         self.assertEqual(exported_reviews[0]["Review Rating"], 4)
         self.assertEqual(exported_reviews[0]["Review Title"], "Start month title")
         self.assertEqual(exported_reviews[0]["Review Text"], "Start month review")
+        self.assertEqual(exported_reviews[0]["Review ID"], "start-month")
         self.assertEqual(exported_reviews[0]["Date Posted"], "01/08/2026")
         self.assertEqual(exported_reviews[0]["Sentiment"], "Positive")
         self.assertEqual(exported_reviews[0]["Sentiment Score"], 0.8)
@@ -381,6 +387,16 @@ class ReviewPipelineTests(unittest.TestCase):
         self.assertIsNone(args.dpci)
         self.assertIsNone(args.dpcis)
 
+    def test_cli_parses_retry_errors_mode(self):
+        args = parse_args(["--retry-errors"])
+
+        self.assertTrue(args.retry_errors)
+
+    def test_cli_parses_update_reviews_mode(self):
+        args = parse_args(["--update-reviews"])
+
+        self.assertTrue(args.update_reviews)
+
     def test_cli_allows_overriding_dpci_library_path(self):
         args = parse_args(["--dpci-library", "custom-library.xlsx"])
 
@@ -449,18 +465,66 @@ class ReviewPipelineTests(unittest.TestCase):
             dashboard = output_path.read_text(encoding="utf-8")
 
         self.assertIn("Target Product Insights", dashboard)
+        self.assertEqual(
+            dashboard.count(f"Target Product Insights | {date.today():%B %Y}"),
+            2,
+        )
         self.assertIn('id="theme-toggle"', dashboard)
         self.assertIn('data-theme="dark"', dashboard)
         self.assertIn("target-dashboard-theme", dashboard)
+        self.assertIn('aria-label="Product pages"', dashboard)
+        self.assertIn('id="products-page-numbers"', dashboard)
+        self.assertIn('id="library-status-filter"', dashboard)
+        self.assertIn('id="website-status-filter"', dashboard)
+        self.assertIn("const productsPerPage = 25", dashboard)
+        self.assertIn("filtered.slice(start,start+productsPerPage)", dashboard)
+        self.assertIn('data-page="${page}"', dashboard)
+        self.assertIn('aria-current="page"', dashboard)
+        self.assertIn('populateStatusFilter("library-status-filter","Status"', dashboard)
+        self.assertIn(
+            'populateStatusFilter("website-status-filter","Website Status","website statuses","Found")',
+            dashboard,
+        )
         self.assertIn('aria-label="Customer review pages"', dashboard)
         self.assertIn("const reviewsPerPage = 25", dashboard)
         self.assertIn("reviews-previous", dashboard)
         self.assertIn("reviews-next", dashboard)
+        self.assertIn('id="reviews-page-numbers"', dashboard)
         self.assertIn("filtered.slice(start,start+reviewsPerPage)", dashboard)
         self.assertIn("Sheet Set", dashboard)
         self.assertIn(r"\u003c", dashboard)
         self.assertIn(r"\u003e", dashboard)
         self.assertNotIn("</script><script>alert(1)</script>", dashboard)
+
+    def test_dashboard_shows_one_latest_product_row_per_dpci(self):
+        with TemporaryDirectory() as directory:
+            output_path = Path(directory) / "dashboard.html"
+            write_dashboard(
+                [
+                    {
+                        "DPCI": "060-15-0108",
+                        "Item Description": "Older product data",
+                        "Website Status": "Error",
+                    },
+                    {
+                        "DPCI": "097-02-2055",
+                        "Item Description": "Different product",
+                    },
+                    {
+                        "DPCI": "060-15-0108",
+                        "Item Description": "Latest product data",
+                        "Website Status": "Found",
+                    },
+                ],
+                [],
+                output_path,
+            )
+
+            dashboard = output_path.read_text(encoding="utf-8")
+
+        self.assertIn("Latest product data", dashboard)
+        self.assertNotIn("Older product data", dashboard)
+        self.assertEqual(dashboard.count('"DPCI":"060-15-0108"'), 1)
 
     def test_combined_excel_export_generates_matching_dashboard(self):
         with TemporaryDirectory() as directory:
@@ -478,6 +542,312 @@ class ReviewPipelineTests(unittest.TestCase):
 
         self.assertIn("Sheet Set", dashboard)
         self.assertIn("Very comfortable", dashboard)
+
+    def test_create_dashboard_from_existing_workbook(self):
+        with TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+            workbook_path = output_dir / f"{date.today():%B} Target Data.xlsx"
+            dashboard_path = output_dir / f"{workbook_path.stem} Dashboard.html"
+            with pd.ExcelWriter(workbook_path) as writer:
+                pd.DataFrame(
+                    [{"DPCI": "060-15-0108", "Item Description": "Sheet Set"}]
+                ).to_excel(writer, sheet_name="Products", index=False)
+                pd.DataFrame(
+                    [{"DPCI": "060-15-0108", "Review Text": "Very comfortable"}]
+                ).to_excel(writer, sheet_name="Reviews", index=False)
+
+            with (
+                patch("src.main.config.OUTPUT_DIR", output_dir),
+                patch("src.main.config.RUN_LOG", output_dir / "run.log"),
+                patch("src.main.setup_logging"),
+                patch("src.main.TargetClient") as target_client,
+                patch("src.main.load_dpci_library") as library_loader,
+            ):
+                self.assertEqual(
+                    main(
+                        [
+                            "--create-dashboard",
+                            "--dashboard-workbook",
+                            str(workbook_path),
+                        ]
+                    ),
+                    0,
+                )
+
+            dashboard = dashboard_path.read_text(encoding="utf-8")
+
+        self.assertIn("Sheet Set", dashboard)
+        self.assertIn("Very comfortable", dashboard)
+        target_client.assert_not_called()
+        library_loader.assert_not_called()
+
+    def test_create_dashboard_requires_products_and_reviews_sheets(self):
+        with TemporaryDirectory() as directory:
+            workbook_path = Path(directory) / "products.xlsx"
+            pd.DataFrame([{"DPCI": "060-15-0108"}]).to_excel(
+                workbook_path,
+                index=False,
+            )
+
+            with self.assertRaisesRegex(ValueError, "Reviews"):
+                write_dashboard_from_excel(workbook_path)
+
+    def test_load_website_error_dpcis_uses_latest_status_per_dpci(self):
+        with TemporaryDirectory() as directory:
+            workbook_path = Path(directory) / "products.xlsx"
+            with pd.ExcelWriter(workbook_path) as writer:
+                pd.DataFrame(
+                    [
+                        {"DPCI": "060-15-0108", "Website Status": "Error"},
+                        {"DPCI": "097-02-2055", "Website Status": "Error"},
+                        {"DPCI": "060-15-0108", "Website Status": "Found"},
+                        {"DPCI": "062-18-0006", "Website Status": "Error"},
+                    ]
+                ).to_excel(writer, sheet_name="Products", index=False)
+                pd.DataFrame(columns=["DPCI", "Review Text"]).to_excel(
+                    writer,
+                    sheet_name="Reviews",
+                    index=False,
+                )
+
+            retry_dpcis = load_website_error_dpcis(workbook_path)
+
+        self.assertEqual(retry_dpcis, ["097-02-2055", "062-18-0006"])
+
+    def test_append_products_and_reviews_preserves_existing_workbook_rows(self):
+        with TemporaryDirectory() as directory:
+            workbook_path = Path(directory) / "products.xlsx"
+            with pd.ExcelWriter(workbook_path) as writer:
+                pd.DataFrame(
+                    [
+                        {
+                            "DPCI": "060-15-0108",
+                            "Item Description": "Original product",
+                            "Website Status": "Error",
+                        }
+                    ]
+                ).to_excel(writer, sheet_name="Products", index=False)
+                pd.DataFrame(
+                    [{"DPCI": "060-15-0108", "Review Text": "Original review"}]
+                ).to_excel(writer, sheet_name="Reviews", index=False)
+
+            append_products_and_reviews_excel(
+                [{"DPCI": "060-15-0108", "Item Description": "Retried product",
+                  "Website Status": "Found"}],
+                [{"DPCI": "060-15-0108", "Review Text": "New review"}],
+                workbook_path,
+            )
+
+            with pd.ExcelFile(workbook_path) as workbook:
+                products = pd.read_excel(workbook, sheet_name="Products")
+                reviews = pd.read_excel(workbook, sheet_name="Reviews")
+
+            dashboard = workbook_path.with_name("products Dashboard.html").read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(len(products), 2)
+        self.assertEqual(products.loc[0, "Item Description"], "Original product")
+        self.assertEqual(products.loc[0, "Website Status"], "Resolved")
+        self.assertEqual(products.loc[1, "Item Description"], "Retried product")
+        self.assertEqual(products.loc[1, "Website Status"], "Found")
+        self.assertEqual(reviews["Review Text"].tolist(), ["Original review", "New review"])
+        self.assertIn("Retried product", dashboard)
+
+    def test_append_products_and_reviews_skips_existing_ids_and_legacy_duplicates(self):
+        with TemporaryDirectory() as directory:
+            workbook_path = Path(directory) / "products.xlsx"
+            with pd.ExcelWriter(workbook_path) as writer:
+                pd.DataFrame(
+                    [{"DPCI": "060-15-0108", "Website Status": "Found"}]
+                ).to_excel(writer, sheet_name="Products", index=False)
+                pd.DataFrame(
+                    [
+                        {
+                            "DPCI": "060-15-0108",
+                            "Review Text": "Already saved",
+                            "Review Title": "Same review",
+                            "Review Rating": 5,
+                            "Date Posted": datetime(2026, 10, 20),
+                        }
+                    ]
+                ).to_excel(writer, sheet_name="Reviews", index=False)
+
+            append_products_and_reviews_excel(
+                [{"DPCI": "060-15-0108", "Website Status": "Found"}],
+                [
+                    {
+                        "DPCI": "060-15-0108",
+                        "Review ID": "legacy-id",
+                        "Review Text": "Already saved",
+                        "Review Title": "Same review",
+                        "Review Rating": 5,
+                        "Date Posted": "20/10/2026",
+                    },
+                    {
+                        "DPCI": "060-15-0108",
+                        "Review ID": "new-id",
+                        "Review Text": "Newly posted review",
+                        "Review Title": "New review",
+                        "Review Rating": 4,
+                        "Date Posted": "21/10/2026",
+                    },
+                ],
+                workbook_path,
+            )
+
+            with pd.ExcelFile(workbook_path) as workbook:
+                reviews = pd.read_excel(workbook, sheet_name="Reviews")
+
+        self.assertEqual(len(reviews), 2)
+        self.assertEqual(
+            reviews["Review Text"].tolist(),
+            ["Already saved", "Newly posted review"],
+        )
+        self.assertEqual(reviews.loc[1, "Review ID"], "new-id")
+
+    def test_main_update_reviews_appends_only_new_current_month_reviews(self):
+        with TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+            workbook_path = output_dir / "October Target Data.xlsx"
+            with pd.ExcelWriter(workbook_path) as writer:
+                pd.DataFrame(
+                    [{"DPCI": "060-15-0108", "Website Status": "Found"}]
+                ).to_excel(writer, sheet_name="Products", index=False)
+                pd.DataFrame(
+                    [
+                        {
+                            "DPCI": "060-15-0108",
+                            "Review ID": "already-saved",
+                            "Review Text": "Existing review",
+                            "Date Posted": date.today().strftime("%d/%m/%Y"),
+                        }
+                    ]
+                ).to_excel(writer, sheet_name="Reviews", index=False)
+
+            with (
+                patch("src.main.config.OUTPUT_DIR", output_dir),
+                patch("src.main.config.RUN_LOG", output_dir / "run.log"),
+                patch("src.main.setup_logging"),
+                patch(
+                    "src.main.load_dpci_library",
+                    return_value={
+                        "060-15-0108": {"Program": "BEDDING", "Status": "CF"},
+                        "097-02-2055": {"Program": "SHEETS", "Status": "CF"},
+                    },
+                ),
+                patch("src.main.load_defects_library", return_value=[]),
+                patch("src.main.TargetClient"),
+                patch(
+                    "src.main.process_one",
+                    side_effect=lambda _client, dpci, **kwargs: (
+                        {
+                            "DPCI": dpci,
+                            "Website Status": "Found",
+                            "Status": "CF",
+                        },
+                        [
+                            {
+                                "DPCI": dpci,
+                                "Review ID": "already-saved"
+                                if dpci == "060-15-0108"
+                                else "brand-new",
+                                "Review Text": "Existing review"
+                                if dpci == "060-15-0108"
+                                else "New review",
+                                "Date Posted": date.today().strftime("%d/%m/%Y"),
+                            }
+                        ],
+                        "ok",
+                    ),
+                ) as process_mock,
+            ):
+                self.assertEqual(
+                    main(
+                        [
+                            "--update-reviews",
+                            "--workbook-output",
+                            str(workbook_path),
+                        ]
+                    ),
+                    0,
+                )
+
+            with pd.ExcelFile(workbook_path) as workbook:
+                reviews = pd.read_excel(workbook, sheet_name="Reviews")
+
+        self.assertEqual(process_mock.call_count, 2)
+        self.assertTrue(
+            all(call.kwargs["review_limit"] == 2550 for call in process_mock.call_args_list)
+        )
+        self.assertEqual(reviews["Review Text"].tolist(), ["Existing review", "New review"])
+        self.assertEqual(reviews["Review ID"].tolist(), ["already-saved", "brand-new"])
+
+    def test_main_retries_latest_website_errors_and_appends_results(self):
+        with TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+            workbook_path = output_dir / "October Target Data.xlsx"
+            with pd.ExcelWriter(workbook_path) as writer:
+                pd.DataFrame(
+                    [
+                        {"DPCI": "060-15-0108", "Website Status": "Error"},
+                        {"DPCI": "097-02-2055", "Website Status": "Error"},
+                        {"DPCI": "060-15-0108", "Website Status": "Found"},
+                        {"DPCI": "062-18-0006", "Website Status": "Error"},
+                    ]
+                ).to_excel(writer, sheet_name="Products", index=False)
+                pd.DataFrame(columns=["DPCI", "Review Text"]).to_excel(
+                    writer,
+                    sheet_name="Reviews",
+                    index=False,
+                )
+
+            with (
+                patch("src.main.config.OUTPUT_DIR", output_dir),
+                patch("src.main.config.RUN_LOG", output_dir / "run.log"),
+                patch("src.main.setup_logging"),
+                patch(
+                    "src.main.load_dpci_library",
+                    return_value={
+                        dpci: {"Program": "BEDDING", "Status": "CF"}
+                        for dpci in ("060-15-0108", "097-02-2055", "062-18-0006")
+                    },
+                ),
+                patch("src.main.load_defects_library", return_value=[]),
+                patch("src.main.TargetClient"),
+                patch(
+                    "src.main.process_one",
+                    side_effect=lambda _client, dpci, **_kwargs: (
+                        {
+                            "DPCI": dpci,
+                            "Item Description": f"Retried {dpci}",
+                            "Website Status": "Found",
+                            "Status": "CF",
+                        },
+                        [{"DPCI": dpci, "Review Text": f"Review for {dpci}"}],
+                        "ok",
+                    ),
+                ) as process_mock,
+            ):
+                self.assertEqual(
+                    main(["--retry-errors", "--workbook-output", str(workbook_path)]),
+                    0,
+                )
+
+            with pd.ExcelFile(workbook_path) as workbook:
+                products = pd.read_excel(workbook, sheet_name="Products")
+                reviews = pd.read_excel(workbook, sheet_name="Reviews")
+
+        self.assertEqual(process_mock.call_count, 2)
+        self.assertEqual(
+            [call.args[1] for call in process_mock.call_args_list],
+            ["097-02-2055", "062-18-0006"],
+        )
+        self.assertEqual(len(products), 6)
+        self.assertEqual(len(reviews), 2)
+        self.assertEqual(products.loc[1, "Website Status"], "Resolved")
+        self.assertEqual(products.loc[3, "Website Status"], "Resolved")
+        self.assertEqual(products.iloc[-2:]["Website Status"].tolist(), ["Found", "Found"])
 
     def test_write_combined_excel_creates_products_and_reviews_sheets(self):
         with TemporaryDirectory() as directory:

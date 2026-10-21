@@ -66,8 +66,7 @@ PRODUCT_COLUMNS = [
 
 REVIEW_COLUMNS = [
     "DPCI",
-    # "TCIN",
-    # "Review ID",
+    "Review ID",
     "Review Rating",
     "Review Title",
     "Review Text",
