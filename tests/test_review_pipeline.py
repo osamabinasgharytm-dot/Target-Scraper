@@ -458,7 +458,13 @@ class ReviewPipelineTests(unittest.TestCase):
             output_path = Path(directory) / "dashboard.html"
             write_dashboard(
                 [{"DPCI": "060-15-0108", "Item Description": "Sheet Set"}],
-                [{"DPCI": "060-15-0108", "Review Text": "</script><script>alert(1)</script>"}],
+                [
+                    {
+                        "DPCI": "060-15-0108",
+                        "Review Text": "</script><script>alert(1)</script>",
+                        "Defect": "Loose stitching",
+                    }
+                ],
                 output_path,
             )
 
@@ -476,6 +482,10 @@ class ReviewPipelineTests(unittest.TestCase):
         self.assertIn('id="products-page-numbers"', dashboard)
         self.assertIn('id="library-status-filter"', dashboard)
         self.assertIn('id="website-status-filter"', dashboard)
+        self.assertIn('id="defect-filter"', dashboard)
+        self.assertIn("function populateDefectFilter()", dashboard)
+        self.assertIn("reviewDefect(r)===defect", dashboard)
+        self.assertIn("Loose stitching", dashboard)
         self.assertIn("const productsPerPage = 25", dashboard)
         self.assertIn("filtered.slice(start,start+productsPerPage)", dashboard)
         self.assertIn('data-page="${page}"', dashboard)
@@ -525,6 +535,28 @@ class ReviewPipelineTests(unittest.TestCase):
         self.assertIn("Latest product data", dashboard)
         self.assertNotIn("Older product data", dashboard)
         self.assertEqual(dashboard.count('"DPCI":"060-15-0108"'), 1)
+
+    def test_dashboard_adds_review_defect_filter(self):
+        with TemporaryDirectory() as directory:
+            output_path = Path(directory) / "dashboard.html"
+            write_dashboard(
+                [],
+                [
+                    {"Defect": "Loose stitching"},
+                    {"Defect": "-", "Reason": "Missing button"},
+                    {"Defect": "-", "Reason": "-"},
+                ],
+                output_path,
+            )
+
+            dashboard = output_path.read_text(encoding="utf-8")
+
+        self.assertIn('id="defect-filter"', dashboard)
+        self.assertIn('aria-label="Filter by defect"', dashboard)
+        self.assertIn("function populateDefectFilter()", dashboard)
+        self.assertIn("const defects=[...new Set(reviews.map(reviewDefect).filter(Boolean))]", dashboard)
+        self.assertIn('(!defect||reviewDefect(r)===defect)', dashboard)
+        self.assertIn('getElementById("defect-filter").addEventListener("change"', dashboard)
 
     def test_combined_excel_export_does_not_generate_dashboard(self):
         with TemporaryDirectory() as directory:

@@ -76,7 +76,7 @@ python -m src.main
 | `output/run.log` | Run log |
 
 Separate product and review CSV files are disabled. Product summaries and selected reviews are written to the combined workbook. Dashboard generation is separate from scraping and Excel exports; run `python -m src.main --create-dashboard` when you want to create or refresh the HTML dashboard from the existing workbook.
-The self-contained dashboard offers summary metrics, rating and sentiment charts, searchable products with library/website status filters and numbered pagination (25 per page), and searchable, filterable, numbered review pagination (25 per page). Products are shown once per DPCI, using the latest row when retries have appended duplicate DPCIs. Use the dashboard's Dark mode / Light mode button to switch themes; the selection is remembered in that browser. It works offline.
+The self-contained dashboard offers summary metrics, rating and sentiment charts, searchable products with library/website status filters and numbered pagination (25 per page), and searchable reviews with sentiment and defect filters and numbered pagination (25 per page). Products are shown once per DPCI, using the latest row when retries have appended duplicate DPCIs. Use the dashboard's Dark mode / Light mode button to switch themes; the selection is remembered in that browser. It works offline.
 
 ### CLI flags
 

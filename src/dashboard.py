@@ -57,11 +57,11 @@ def write_dashboard(
   <style>
     :root{color-scheme:light;--page:#f4f6f3;--surface:#fff;--surface-muted:#f8faf8;--text:#17211d;--muted:#758079;--border:#e8ece8;--line:#edf0ed;--control-border:#dce2dc;--pill:#eff2ef;--chart-text:#536059;--chart-track:#edf1ed;--shadow:#18271c08;font-family:Inter,"Segoe UI",Arial,sans-serif;color:var(--text);background:var(--page);font-synthesis:none}
     :root[data-theme="dark"]{color-scheme:dark;--page:#151a17;--surface:#202723;--surface-muted:#272f2a;--text:#edf3ee;--muted:#a0aca4;--border:#343e37;--line:#343e37;--control-border:#465249;--pill:#343e37;--chart-text:#c0cbc2;--chart-track:#3a453d;--shadow:#0004}
-    *{box-sizing:border-box}body{margin:0;background:var(--page);color:var(--text);transition:background-color .2s,color .2s}.shell{max-width:1440px;margin:auto;padding:32px}
+    *{box-sizing:border-box}body{margin:0;background:var(--page);color:var(--text);transition:background-color .2s,color .2s}.shell{max-width:1920px;margin:auto;padding:32px}
     header{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:28px}
     h1{font-size:28px;margin:0 0 5px;letter-spacing:-.5px}.subtle,.muted{color:var(--muted);font-size:13px; text-align:center}
-    .header-actions{display:flex;align-items:center;gap:10px}.theme-toggle{border:1px solid var(--control-border);border-radius:20px;padding:8px 13px;background:var(--surface);color:var(--text);font:inherit;font-size:12px;font-weight:650;cursor:pointer}.theme-toggle:hover{background:var(--surface-muted)}.theme-toggle:focus-visible{outline:2px solid #31865a;outline-offset:2px}
-    .badge{border-radius:20px;padding:8px 13px;background:#e5f3e9;color:#237345;font-size:12px;font-weight:700}
+    .header-actions{display:flex;align-items:center;gap:10px}.theme-toggle{border:1px solid var(--control-border);border-radius:20px;padding:8px 13px;background:var(--surface);color:var(--text);font:inherit;font-size:12px;font-weight:650;cursor:pointer}.theme-toggle:hover{background:var(--surface-muted)}.theme-toggle:focus-visible{outline:2px solid #2ED003;outline-offset:2px}
+    .badge{border-radius:20px;padding:8px 13px;background:#e5f3e9;color:#2ED003;font-size:12px;font-weight:700}
     .cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:18px}
     .card,.panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:0 3px 12px var(--shadow)}
     .card{padding:19px}.label{font-size:12px;color:var(--muted);font-weight:600}.value{font-size:29px;font-weight:750;margin-top:10px;letter-spacing:-.5px}
@@ -75,8 +75,8 @@ def write_dashboard(
     th{text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;background:var(--surface-muted)}
     td,th{padding:12px 13px;border-bottom:1px solid var(--line)}tbody tr:hover{background:var(--surface-muted)}
     .pill{border-radius:20px;padding:4px 8px;background:var(--pill);font-size:11px}
-    .positive{color:#237345}.negative{color:#b44940}.empty{text-align:center;padding:24px;color:#758079}
-    .pagination{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:14px;flex-wrap:wrap}.pagination button{border:1px solid var(--control-border);border-radius:8px;padding:8px 12px;background:var(--surface);color:var(--text);font:inherit;cursor:pointer}.pagination button:disabled{opacity:.45;cursor:not-allowed}.pagination button:not(:disabled):hover{background:var(--surface-muted)}.page-numbers{display:flex;align-items:center;gap:5px}.pagination .page-number{min-width:34px;padding:7px 9px}.pagination .page-number[aria-current="page"]{background:#31865a;border-color:#31865a;color:#fff;font-weight:700}.page-ellipsis{padding:0 2px;color:var(--muted)}
+    .positive{color:#2ED003}.negative{color:#F7090A}.empty{text-align:center;padding:24px;color:#758079}
+    .pagination{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:14px;flex-wrap:wrap}.pagination button{border:1px solid var(--control-border);border-radius:8px;padding:8px 12px;background:var(--surface);color:var(--text);font:inherit;cursor:pointer}.pagination button:disabled{opacity:.45;cursor:not-allowed}.pagination button:not(:disabled):hover{background:var(--surface-muted)}.page-numbers{display:flex;align-items:center;gap:5px}.pagination .page-number{min-width:34px;padding:7px 9px}.pagination .page-number[aria-current="page"]{background:#2ED003;border-color:#2ED003;color:#fff;font-weight:700}.page-ellipsis{padding:0 2px;color:var(--muted)}
     @media(max-width:850px){.shell{padding:20px}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.charts{grid-template-columns:1fr}}
     @media(max-width:520px){.shell{padding:14px}header,.section-heading{align-items:flex-start;flex-direction:column}.cards{gap:10px}.value{font-size:24px}input{width:100%}.product-controls{width:100%;align-items:stretch;flex-direction:column}.product-controls select{width:100%}}
   </style>
@@ -103,7 +103,7 @@ def write_dashboard(
       <nav class="pagination" aria-label="Product pages"><button id="products-previous" type="button" disabled>Previous</button><span class="page-numbers" id="products-page-numbers"></span><span id="products-page-info" class="muted" aria-live="polite"></span><button id="products-next" type="button" disabled>Next</button></nav>
     </section>
     <section class="panel">
-      <div class="section-heading"><div><h2 style="margin:0 0 4px">Customer reviews</h2><span class="muted" id="review-caption"></span></div><div><select id="sentiment-filter" aria-label="Filter by sentiment"><option value="">All sentiment</option><option>Positive</option><option>Neutral</option><option>Negative</option></select> <input id="review-search" type="search" placeholder="Search reviews or DPCI" aria-label="Search reviews"></div></div>
+      <div class="section-heading"><div><h2 style="margin:0 0 4px">Customer reviews</h2><span class="muted" id="review-caption"></span></div><div><select id="sentiment-filter" aria-label="Filter by sentiment"><option value="">All sentiment</option><option>Positive</option><option>Neutral</option><option>Negative</option></select> <select id="defect-filter" aria-label="Filter by defect"><option value="">All defects</option></select> <input id="review-search" type="search" placeholder="Search reviews or DPCI" aria-label="Search reviews"></div></div>
       <div class="table-wrap"><table><thead><tr><th>DPCI</th><th>Rating</th><th>Sentiment</th><th>Review</th><th>Date</th><th>Defect</th></tr></thead><tbody id="reviews-body"></tbody></table></div>
       <nav class="pagination" aria-label="Customer review pages"><button id="reviews-previous" type="button" disabled>Previous</button><span class="page-numbers" id="reviews-page-numbers"></span><span id="reviews-page-info" class="muted" aria-live="polite"></span><button id="reviews-next" type="button" disabled>Next</button></nav>
     </section>
@@ -112,8 +112,8 @@ def write_dashboard(
   <script>
     const products = __PRODUCTS__;
     const reviews = __REVIEWS__;
-    const productsPerPage = 25;
-    const reviewsPerPage = 25;
+    const productsPerPage = 15;
+    const reviewsPerPage = 15;
     let productPage = 1;
     let reviewPage = 1;
     const themeToggle = document.getElementById("theme-toggle");
@@ -172,7 +172,7 @@ def write_dashboard(
       const chartText = themeStyles.getPropertyValue("--chart-text").trim();
       const total = Object.values(sentimentCounts).reduce((a,b) => a+b,0);
       if (!total) {ctx.fillStyle="#758079";ctx.font="14px sans-serif";ctx.fillText("No review sentiment data",12,30);return;}
-      const colors={Positive:"#31865a",Neutral:"#e2ad46",Negative:"#d6675d"}, cx=Math.min(width*.34,100), cy=height/2, radius=Math.min(74,height*.38);
+      const colors={Positive:"#2ED003",Neutral:"#F7DC00",Negative:"#F7090A"}, cx=Math.min(width*.34,100), cy=height/2, radius=Math.min(74,height*.38);
       let start=-Math.PI/2;
       Object.entries(sentimentCounts).forEach(([label,count]) => {
         if (!count) return; const end=start+count/total*Math.PI*2;
@@ -191,7 +191,7 @@ def write_dashboard(
       const top=products.filter(p=>number(p["Avg. Rating"])>0).sort((a,b)=>number(b["Avg. Rating"])-number(a["Avg. Rating"])).slice(0,5);
       if (!top.length) {ctx.fillStyle="#758079";ctx.font="14px sans-serif";ctx.fillText("No product ratings available",12,30);return;}
       const left=Math.min(220,width*.52), row=height/top.length, barWidth=Math.max(width-left-55,20);
-      top.forEach((p,i)=>{const y=i*row+row*.28,label=text(p["Item Description"]||p.DPCI);ctx.fillStyle=themeStyles.getPropertyValue("--chart-text").trim();ctx.font="12px sans-serif";ctx.textAlign="right";ctx.fillText(label.length>32?label.slice(0,29)+"…":label,left-12,y+12);ctx.fillStyle=themeStyles.getPropertyValue("--chart-track").trim();ctx.fillRect(left,y,barWidth,15);ctx.fillStyle="#31865a";ctx.fillRect(left,y,barWidth*Math.min(number(p["Avg. Rating"])/5,1),15);ctx.textAlign="left";ctx.fillStyle=themeStyles.getPropertyValue("--text").trim();ctx.fillText(number(p["Avg. Rating"]).toFixed(1),left+barWidth+9,y+12);});
+      top.forEach((p,i)=>{const y=i*row+row*.28,label=text(p["Item Description"]||p.DPCI);ctx.fillStyle=themeStyles.getPropertyValue("--chart-text").trim();ctx.font="12px sans-serif";ctx.textAlign="right";ctx.fillText(label.length>32?label.slice(0,29)+"…":label,left-12,y+12);ctx.fillStyle=themeStyles.getPropertyValue("--chart-track").trim();ctx.fillRect(left,y,barWidth,15);ctx.fillStyle="#2ED003";ctx.fillRect(left,y,barWidth*Math.min(number(p["Avg. Rating"])/5,1),15);ctx.textAlign="left";ctx.fillStyle=themeStyles.getPropertyValue("--text").trim();ctx.fillText(number(p["Avg. Rating"]).toFixed(1),left+barWidth+9,y+12);});
     }
     function renderPageNumbers(containerId,currentPage,pageCount) {
       const container=document.getElementById(containerId);
@@ -229,13 +229,24 @@ def write_dashboard(
       select.innerHTML=`<option value="">All ${label}</option>`+values.map(value=>`<option value="${safe(value)}">${safe(value)}</option>`).join("");
       if (values.includes(defaultValue)) select.value=defaultValue;
     }
+    function reviewDefect(review) {
+      const defect=text(review.Defect).trim();
+      if (defect && defect!=="-") return defect;
+      const reason=text(review.Reason).trim();
+      return reason==="-" ? "" : reason;
+    }
+    function populateDefectFilter() {
+      const select=document.getElementById("defect-filter");
+      const defects=[...new Set(reviews.map(reviewDefect).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+      select.innerHTML='<option value="">All defects</option>'+defects.map(defect=>`<option value="${safe(defect)}">${safe(defect)}</option>`).join("");
+    }
     function renderReviews() {
-      const query=document.getElementById("review-search").value.toLowerCase(), sentiment=document.getElementById("sentiment-filter").value;
-      const filtered=reviews.filter(r=>(!sentiment||text(r.Sentiment)===sentiment)&&[r.DPCI,r["Review Title"],r["Review Text"],r.Reason,r.Defect].some(v=>text(v).toLowerCase().includes(query)));
+      const query=document.getElementById("review-search").value.toLowerCase(), sentiment=document.getElementById("sentiment-filter").value, defect=document.getElementById("defect-filter").value;
+      const filtered=reviews.filter(r=>(!sentiment||text(r.Sentiment)===sentiment)&&(!defect||reviewDefect(r)===defect)&&[r.DPCI,r["Review Title"],r["Review Text"],r.Reason,r.Defect].some(v=>text(v).toLowerCase().includes(query)));
       const pageCount=Math.ceil(filtered.length/reviewsPerPage);
       reviewPage=Math.min(reviewPage,Math.max(pageCount,1));
       const start=(reviewPage-1)*reviewsPerPage;
-      document.getElementById("reviews-body").innerHTML=filtered.length?filtered.slice(start,start+reviewsPerPage).map(r=>`<tr><td>${safe(r.DPCI)}</td><td>${r["Review Rating"]==null?"—":safe(r["Review Rating"])+" / 5"}</td><td><span class="pill ${text(r.Sentiment)==="Positive"?"positive":text(r.Sentiment)==="Negative"?"negative":""}">${safe(r.Sentiment)||"—"}</span></td><td title="${safe(r["Review Text"])}">${safe((text(r["Review Text"])||text(r["Review Title"])).slice(0,180))||"—"}</td><td>${safe(r["Date Posted"])||"—"}</td><td>${safe(r.Defect==="-"?"":r.Defect)||safe(r.Reason==="-"?"":r.Reason)||"—"}</td></tr>`).join(""):'<tr><td class="empty" colspan="6">No matching reviews</td></tr>';
+      document.getElementById("reviews-body").innerHTML=filtered.length?filtered.slice(start,start+reviewsPerPage).map(r=>`<tr><td>${safe(r.DPCI)}</td><td>${r["Review Rating"]==null?"—":safe(r["Review Rating"])+" / 5"}</td><td><span class="pill ${text(r.Sentiment)==="Positive"?"positive":text(r.Sentiment)==="Negative"?"negative":""}">${safe(r.Sentiment)||"—"}</span></td><td title="${safe(r["Review Text"])}">${safe((text(r["Review Text"])||text(r["Review Title"])).slice(0,180))||"—"}</td><td>${safe(r["Date Posted"])||"—"}</td><td>${safe(reviewDefect(r))||"—"}</td></tr>`).join(""):'<tr><td class="empty" colspan="6">No matching reviews</td></tr>';
       document.getElementById("reviews-page-info").textContent=filtered.length?`Showing ${start+1}–${Math.min(start+reviewsPerPage,filtered.length)} of ${filtered.length} reviews`:"No reviews";
       document.getElementById("reviews-previous").disabled=reviewPage<=1;
       document.getElementById("reviews-next").disabled=reviewPage>=pageCount;
@@ -243,6 +254,7 @@ def write_dashboard(
     }
     populateStatusFilter("library-status-filter","Status","library statuses");
     populateStatusFilter("website-status-filter","Website Status","website statuses","Found");
+    populateDefectFilter();
     document.getElementById("product-search").addEventListener("input",()=>{productPage=1;renderProducts();});
     document.getElementById("library-status-filter").addEventListener("change",()=>{productPage=1;renderProducts();});
     document.getElementById("website-status-filter").addEventListener("change",()=>{productPage=1;renderProducts();});
@@ -254,6 +266,7 @@ def write_dashboard(
     });
     document.getElementById("review-search").addEventListener("input",()=>{reviewPage=1;renderReviews();});
     document.getElementById("sentiment-filter").addEventListener("change",()=>{reviewPage=1;renderReviews();});
+    document.getElementById("defect-filter").addEventListener("change",()=>{reviewPage=1;renderReviews();});
     document.getElementById("reviews-previous").addEventListener("click",()=>{if(reviewPage>1){reviewPage--;renderReviews();}});
     document.getElementById("reviews-next").addEventListener("click",()=>{reviewPage++;renderReviews();});
     document.getElementById("reviews-page-numbers").addEventListener("click",event=>{
