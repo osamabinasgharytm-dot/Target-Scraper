@@ -10,15 +10,20 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from src.config import PRODUCT_COLUMNS, REVIEW_COLUMNS
-from src.dashboard import write_dashboard, write_dashboard_from_excel
 
 logger = logging.getLogger("scrapper")
 
 
 def _review_identity(row: dict) -> tuple[str, ...] | None:
     """Build a stable review key, with a content fallback for older exports."""
-    dpci = str(row.get("DPCI") or "").strip()
-    review_id = str(row.get("Review ID") or "").strip()
+    dpci_value = row.get("DPCI")
+    dpci = "" if dpci_value is None or pd.isna(dpci_value) else str(dpci_value).strip()
+    review_id_value = row.get("Review ID")
+    review_id = (
+        ""
+        if review_id_value is None or pd.isna(review_id_value)
+        else str(review_id_value).strip()
+    )
     if review_id:
         return ("id", dpci, review_id)
 
@@ -80,12 +85,26 @@ def load_website_error_dpcis(path: Path) -> list[str]:
     ]
 
 
+def _ensure_headers(sheet, expected_columns: list[str]) -> dict[str, int]:
+    headers = {
+        str(sheet.cell(row=1, column=column).value).strip(): column
+        for column in range(1, sheet.max_column + 1)
+        if sheet.cell(row=1, column=column).value is not None
+    }
+    for column in expected_columns:
+        if column not in headers:
+            new_column = sheet.max_column + 1
+            sheet.cell(row=1, column=new_column, value=column)
+            headers[column] = new_column
+    return headers
+
+
 def append_products_and_reviews_excel(
     product_rows: list[dict],
     review_rows: list[dict],
     path: Path,
 ) -> Path:
-    """Append product and review rows to an existing combined workbook."""
+    """Update unique product rows and append only reviews missing from the workbook."""
     if not path.is_file():
         raise FileNotFoundError(f"Excel workbook not found: {path}")
 
@@ -100,111 +119,127 @@ def append_products_and_reviews_excel(
         )
 
     appended_review_count = 0
-    for sheet_name, rows, expected_columns in (
-        ("Products", product_rows, PRODUCT_COLUMNS),
-        ("Reviews", review_rows, REVIEW_COLUMNS),
-    ):
-        sheet = workbook[sheet_name]
-        headers = {
-            str(sheet.cell(row=1, column=column).value).strip(): column
-            for column in range(1, sheet.max_column + 1)
-            if sheet.cell(row=1, column=column).value is not None
-        }
-        for column in expected_columns:
-            if column not in headers:
-                new_column = sheet.max_column + 1
-                sheet.cell(row=1, column=new_column, value=column)
-                headers[column] = new_column
-
-        seen_review_ids: set[tuple[str, ...]] = set()
-        legacy_content_keys: set[tuple[str, ...]] = set()
-        if sheet_name == "Reviews":
-            for row_number in range(2, sheet.max_row + 1):
-                existing_row = {
-                    header: sheet.cell(row=row_number, column=column).value
-                    for header, column in headers.items()
-                }
-                identity = _review_identity(existing_row)
-                if identity is None:
-                    continue
-                if identity[0] == "id":
-                    seen_review_ids.add(identity)
-                else:
-                    legacy_content_keys.add(identity)
-
-        for row in rows:
-            if sheet_name == "Reviews":
-                identity = _review_identity(row)
-                if identity is not None and (
-                    identity in seen_review_ids
-                    or (
-                        identity[0] == "id"
-                        and _review_identity(
-                            {
-                                **row,
-                                "Review ID": "",
-                            }
-                        )
-                        in legacy_content_keys
-                    )
-                ):
-                    continue
-            values = [None] * sheet.max_column
-            for column, value in row.items():
-                if column not in headers:
-                    continue
-                if value is None or pd.isna(value):
-                    value = None
-                elif hasattr(value, "item"):
-                    value = value.item()
-                values[headers[column] - 1] = value
-            sheet.append(values)
-            if sheet_name == "Reviews" and identity is not None:
-                if identity[0] == "id":
-                    seen_review_ids.add(identity)
-                else:
-                    legacy_content_keys.add(identity)
-                appended_review_count += 1
-
     product_sheet = workbook["Products"]
-    product_headers = {
-        str(product_sheet.cell(row=1, column=column).value).strip(): column
-        for column in range(1, product_sheet.max_column + 1)
-        if product_sheet.cell(row=1, column=column).value is not None
-    }
+    product_headers = _ensure_headers(product_sheet, PRODUCT_COLUMNS)
     if "DPCI" not in product_headers or "Website Status" not in product_headers:
         raise ValueError("Products sheet must contain DPCI and Website Status columns")
 
-    successfully_scraped = {
-        str(row["DPCI"]).strip()
-        for row in product_rows
-        if row.get("DPCI")
-        and str(row.get("Website Status", "")).strip().casefold() == "found"
-    }
+    def write_row(sheet, headers: dict[str, int], row_number: int, row: dict) -> None:
+        for column, value in row.items():
+            if column not in headers:
+                continue
+            if value is None or pd.isna(value):
+                value = None
+            elif hasattr(value, "item"):
+                value = value.item()
+            sheet.cell(row=row_number, column=headers[column], value=value)
+
+    product_rows_by_dpci: dict[str, list[int]] = {}
     for row_number in range(2, product_sheet.max_row + 1):
         dpci = product_sheet.cell(
             row=row_number,
             column=product_headers["DPCI"],
         ).value
-        website_status = product_sheet.cell(
+        if dpci is None or not str(dpci).strip():
+            continue
+        dpci_key = str(dpci).strip()
+        product_rows_by_dpci.setdefault(dpci_key, []).append(row_number)
+
+    duplicate_product_rows = [
+        row_number
+        for row_numbers in product_rows_by_dpci.values()
+        for row_number in row_numbers[:-1]
+    ]
+    for row_number in sorted(duplicate_product_rows, reverse=True):
+        product_sheet.delete_rows(row_number)
+
+    product_row_numbers: dict[str, int] = {}
+    for row_number in range(2, product_sheet.max_row + 1):
+        dpci = product_sheet.cell(
             row=row_number,
-            column=product_headers["Website Status"],
+            column=product_headers["DPCI"],
+        ).value
+        if dpci is not None and str(dpci).strip():
+            product_row_numbers[str(dpci).strip()] = row_number
+
+    for row in product_rows:
+        dpci = str(row.get("DPCI") or "").strip()
+        if not dpci:
+            product_sheet.append([None] * product_sheet.max_column)
+            write_row(product_sheet, product_headers, product_sheet.max_row, row)
+            continue
+        if dpci in product_row_numbers:
+            write_row(product_sheet, product_headers, product_row_numbers[dpci], row)
+        else:
+            product_sheet.append([None] * product_sheet.max_column)
+            row_number = product_sheet.max_row
+            write_row(product_sheet, product_headers, row_number, row)
+            product_row_numbers[dpci] = row_number
+
+    review_sheet = workbook["Reviews"]
+    review_headers = _ensure_headers(review_sheet, REVIEW_COLUMNS)
+    seen_review_ids: set[tuple[str, ...]] = set()
+    seen_review_content: set[tuple[str, ...]] = set()
+    duplicate_review_rows: list[int] = []
+    for row_number in range(2, review_sheet.max_row + 1):
+        existing_row = {
+            header: review_sheet.cell(row=row_number, column=column).value
+            for header, column in review_headers.items()
+        }
+        identity = _review_identity(existing_row)
+        if identity is None:
+            continue
+        content_identity = _review_identity(
+            {
+                **existing_row,
+                "Review ID": "",
+            }
         )
-        if (
-            dpci is not None
-            and str(dpci).strip() in successfully_scraped
-            and str(website_status.value or "").strip().casefold() == "error"
-        ):
-            website_status.value = "Resolved"
+        already_exists = (
+            identity in seen_review_ids
+            or (
+                content_identity is not None
+                and content_identity in seen_review_content
+            )
+        )
+        if already_exists:
+            duplicate_review_rows.append(row_number)
+            continue
+        if content_identity is not None:
+            seen_review_content.add(content_identity)
+        if identity[0] == "id":
+            seen_review_ids.add(identity)
+
+    for row_number in reversed(duplicate_review_rows):
+        review_sheet.delete_rows(row_number)
+
+    for row in review_rows:
+        identity = _review_identity(row)
+        if identity is not None:
+            content_identity = _review_identity({**row, "Review ID": ""})
+            if (
+                identity in seen_review_ids
+                or (
+                    content_identity is not None
+                    and content_identity in seen_review_content
+                )
+            ):
+                continue
+        review_sheet.append([None] * review_sheet.max_column)
+        write_row(review_sheet, review_headers, review_sheet.max_row, row)
+        if identity is not None:
+            if content_identity is not None:
+                seen_review_content.add(content_identity)
+            if identity[0] == "id":
+                seen_review_ids.add(identity)
+        appended_review_count += 1
 
     workbook.save(path)
-    dashboard_path = write_dashboard_from_excel(path)
     logger.info(
-        "Appended %d product rows and %d new review rows to %s; dashboard -> %s",
+        "Updated %d product rows and added %d new review rows to %s",
         len(product_rows),
         appended_review_count,
         path,
-        dashboard_path,
     )
     return path
 
@@ -244,11 +279,6 @@ def write_products_and_reviews_excel(
     with pd.ExcelWriter(path) as writer:
         products_df.to_excel(writer, sheet_name="Products", index=False)
         reviews_df.to_excel(writer, sheet_name="Reviews", index=False)
-    write_dashboard(
-        products_df.to_dict(orient="records"),
-        reviews_df.to_dict(orient="records"),
-        path.with_name(f"{path.stem} Dashboard.html"),
-    )
     logger.info(
         "Wrote %d product rows and %d review rows -> %s",
         len(products_df),

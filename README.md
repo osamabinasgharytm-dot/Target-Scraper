@@ -1,4 +1,4 @@
-# Target.com Product Scraper (v1)
+# Target.com Product Scraper (v1.1)
 
 On-demand Python pipeline that:
 
@@ -50,7 +50,7 @@ python -m src.main --all-current-month
 # Recreate the dashboard from this month's existing Excel workbook without scraping
 python -m src.main --create-dashboard
 
-# Retry products whose latest Website Status is Error and append the results
+# Retry products whose latest Website Status is Error and update their workbook rows
 python -m src.main --retry-errors
 
 # Daily update — scrape current-month reviews for all library products and append only new reviews
@@ -72,11 +72,11 @@ python -m src.main
 |------|----------|
 | `output/reviews_range.xlsx` | Reviews for specified DPCIs and inclusive month range |
 | `output/<Current Month> Target Data.xlsx` | Combined workbook with `Products` and `Reviews` sheets |
-| `output/<Current Month> Target Data Dashboard.html` | Interactive dashboard generated from the combined workbook's `Products` and `Reviews` sheets |
+| `output/<Current Month> Target Data Dashboard.html` | Interactive dashboard, generated only when requested with `--create-dashboard` |
 | `output/run.log` | Run log |
 
-Separate product and review CSV files are disabled. Product summaries and selected reviews are written to the combined workbook.
-After each combined workbook export, open the matching dashboard HTML file in a browser to explore summary metrics, rating and sentiment charts, searchable products with library/website status filters and numbered pagination (25 per page), and searchable, filterable, numbered review pagination (25 per page). Products are shown once per DPCI, using the latest row when retries have appended duplicate DPCIs. Use the dashboard's Dark mode / Light mode button to switch themes; the selection is remembered in that browser. The dashboard is self-contained and works offline.
+Separate product and review CSV files are disabled. Product summaries and selected reviews are written to the combined workbook. Dashboard generation is separate from scraping and Excel exports; run `python -m src.main --create-dashboard` when you want to create or refresh the HTML dashboard from the existing workbook.
+The self-contained dashboard offers summary metrics, rating and sentiment charts, searchable products with library/website status filters and numbered pagination (25 per page), and searchable, filterable, numbered review pagination (25 per page). Products are shown once per DPCI, using the latest row when retries have appended duplicate DPCIs. Use the dashboard's Dark mode / Light mode button to switch themes; the selection is remembered in that browser. It works offline.
 
 ### CLI flags
 
@@ -96,8 +96,8 @@ After each combined workbook export, open the matching dashboard HTML file in a 
 | `--all-current-month` | Export current-month reviews for every DPCI in `DPCI LIBRARY.xlsx`; defaults to the API maximum per DPCI and cannot be combined with `--dpci` or `--dpcis` |
 | `--create-dashboard` | Regenerate this month's dashboard from its existing workbook without scraping |
 | `--dashboard-workbook PATH` | Workbook to use with `--create-dashboard` (default: this month's workbook in `output`) |
-| `--retry-errors` | Re-scrape DPCIs whose latest `Website Status` is `Error` in the combined workbook and append new product/review rows without removing previous data |
-| `--update-reviews` | Scrape current-month reviews for every DPCI in the library and append only reviews not already in the existing combined workbook; keeps existing review history |
+| `--retry-errors` | Re-scrape DPCIs whose latest `Website Status` is `Error`; update their product rows and append only new reviews |
+| `--update-reviews` | Scrape current-month reviews for every DPCI in the library, update existing product rows, and append only reviews not already in the combined workbook |
 
 ## Products sheet columns
 
@@ -117,8 +117,8 @@ After each combined workbook export, open the matching dashboard HTML file in a 
 | TCIN | Target item number |
 
 Some DPCIs may return `not_found` if the item is no longer searchable on Target.com.
-Use `--retry-errors` to retry DPCIs whose latest Products-sheet row has `Website Status` set to `Error`. New results are appended to the existing workbook; prior rows remain as history. If a retry succeeds, earlier `Error` statuses for that DPCI are changed to `Resolved`; unsuccessful retries remain `Error`. The command uses current-month reviews and the API maximum by default. It retries the latest error row per DPCI, so a later `Found` result prevents that DPCI from being retried again.
-Use `--update-reviews` for a daily current-month refresh across all DPCIs in the library. It requires the combined workbook to already exist, appends product summaries and only new reviews to its existing sheets, and leaves existing review rows intact. Review IDs prevent duplicates; for older workbook rows without IDs, DPCI, date, rating, title, and review text are used to detect duplicates. The API maximum is requested by default; pass `--review-limit N` to lower the per-product fetch limit.
+Use `--retry-errors` to retry DPCIs whose latest Products-sheet row has `Website Status` set to `Error`. The latest product data is updated in place, so each DPCI stays unique; existing reviews remain and only new review rows are added. A successful retry changes the product status to `Found`; unsuccessful retries remain `Error`. The command uses current-month reviews and the API maximum by default. It retries the latest error row per DPCI, so a later `Found` result prevents that DPCI from being retried again.
+Use `--update-reviews` for a daily current-month refresh across all DPCIs in the library. It requires the combined workbook to already exist, updates existing product rows in place (one row per DPCI), and appends only reviews not already in the workbook. Existing duplicate product rows are collapsed to the latest row, and duplicate review rows are removed during the update. Review IDs prevent duplicates; for older workbook rows without IDs, DPCI, date, rating, title, and review text are used to detect duplicates. The API maximum is requested by default; pass `--review-limit N` to lower the per-product fetch limit.
 For a month-range export of all DPCIs in `DPCI LIBRARY.xlsx`, pass `--from-month` and `--to-month`; use `--dpci-library PATH` to select a different workbook. To limit the export to chosen products, also pass `--dpcis` (or one `--dpci`). Both month endpoints are included. Matching reviews are written to Excel.
 Reviews are fetched newest-first, up to `--review-limit` per DPCI (default `50`). In current-month mode the default is the API maximum (2,550 reviews per product with the default page size of 50); pass `--review-limit` to set a lower explicit limit. Target supports at most 51 pages of 50 reviews per product.
 The combined workbook's `Reviews` sheet includes the Target `Review ID`, VADER sentiment, normalized score (-1 to +1), and individual satisfaction percentage (0 to 100). Only negative reviews are matched case-insensitively against whole words and contiguous phrases in `DEFECTS LIST.xlsx`; matching `Reason`, source `Sub Category` (shown as `Defect` in the review sheet), and `Main Category` are written in adjacent columns after `Review Text`. Multiple matches are joined with ` | `. Positive and neutral reviews show `-` in all three defect columns. The `Products` sheet includes mean satisfaction per product; positive/negative/neutral percentages are based on the VADER labels.

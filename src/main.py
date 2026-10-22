@@ -173,8 +173,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--retry-errors",
         action="store_true",
         help=(
-            "Re-scrape DPCIs whose latest Website Status in the combined workbook "
-            "is Error, then append results without removing previous rows"
+            "Re-scrape DPCIs whose latest Website Status is Error, update product "
+            "rows, and append new reviews"
         ),
     )
     parser.add_argument(

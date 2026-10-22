@@ -526,7 +526,7 @@ class ReviewPipelineTests(unittest.TestCase):
         self.assertNotIn("Older product data", dashboard)
         self.assertEqual(dashboard.count('"DPCI":"060-15-0108"'), 1)
 
-    def test_combined_excel_export_generates_matching_dashboard(self):
+    def test_combined_excel_export_does_not_generate_dashboard(self):
         with TemporaryDirectory() as directory:
             workbook_path = Path(directory) / "products.xlsx"
             dashboard_path = Path(directory) / "products Dashboard.html"
@@ -537,11 +537,7 @@ class ReviewPipelineTests(unittest.TestCase):
             )
 
             self.assertTrue(workbook_path.exists())
-            self.assertTrue(dashboard_path.exists())
-            dashboard = dashboard_path.read_text(encoding="utf-8")
-
-        self.assertIn("Sheet Set", dashboard)
-        self.assertIn("Very comfortable", dashboard)
+            self.assertFalse(dashboard_path.exists())
 
     def test_create_dashboard_from_existing_workbook(self):
         with TemporaryDirectory() as directory:
@@ -614,7 +610,7 @@ class ReviewPipelineTests(unittest.TestCase):
 
         self.assertEqual(retry_dpcis, ["097-02-2055", "062-18-0006"])
 
-    def test_append_products_and_reviews_preserves_existing_workbook_rows(self):
+    def test_append_updates_existing_product_without_duplicate_dpci(self):
         with TemporaryDirectory() as directory:
             workbook_path = Path(directory) / "products.xlsx"
             with pd.ExcelWriter(workbook_path) as writer:
@@ -642,17 +638,11 @@ class ReviewPipelineTests(unittest.TestCase):
                 products = pd.read_excel(workbook, sheet_name="Products")
                 reviews = pd.read_excel(workbook, sheet_name="Reviews")
 
-            dashboard = workbook_path.with_name("products Dashboard.html").read_text(
-                encoding="utf-8"
-            )
-
-        self.assertEqual(len(products), 2)
-        self.assertEqual(products.loc[0, "Item Description"], "Original product")
-        self.assertEqual(products.loc[0, "Website Status"], "Resolved")
-        self.assertEqual(products.loc[1, "Item Description"], "Retried product")
-        self.assertEqual(products.loc[1, "Website Status"], "Found")
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products.loc[0, "Item Description"], "Retried product")
+        self.assertEqual(products.loc[0, "Website Status"], "Found")
         self.assertEqual(reviews["Review Text"].tolist(), ["Original review", "New review"])
-        self.assertIn("Retried product", dashboard)
+        self.assertFalse(workbook_path.with_name("products Dashboard.html").exists())
 
     def test_append_products_and_reviews_skips_existing_ids_and_legacy_duplicates(self):
         with TemporaryDirectory() as directory:
@@ -705,6 +695,70 @@ class ReviewPipelineTests(unittest.TestCase):
             ["Already saved", "Newly posted review"],
         )
         self.assertEqual(reviews.loc[1, "Review ID"], "new-id")
+
+    def test_append_cleans_existing_duplicate_products_and_reviews(self):
+        with TemporaryDirectory() as directory:
+            workbook_path = Path(directory) / "products.xlsx"
+            with pd.ExcelWriter(workbook_path) as writer:
+                pd.DataFrame(
+                    [
+                        {"DPCI": "060-15-0108", "Item Description": "Old version",
+                         "Website Status": "Error"},
+                        {"DPCI": "097-02-2055", "Item Description": "Other product",
+                         "Website Status": "Found"},
+                        {"DPCI": "060-15-0108", "Item Description": "Latest version",
+                         "Website Status": "Found"},
+                    ]
+                ).to_excel(writer, sheet_name="Products", index=False)
+                pd.DataFrame(
+                    [
+                        {
+                            "DPCI": "060-15-0108",
+                            "Review ID": "duplicate-review",
+                            "Review Text": "Repeated review",
+                            "Date Posted": "21/10/2026",
+                        },
+                        {
+                            "DPCI": "060-15-0108",
+                            "Review ID": "duplicate-review",
+                            "Review Text": "Repeated review",
+                            "Date Posted": "21/10/2026",
+                        },
+                    ]
+                ).to_excel(writer, sheet_name="Reviews", index=False)
+
+            append_products_and_reviews_excel(
+                [{"DPCI": "060-15-0108", "Item Description": "Updated version",
+                  "Website Status": "Found"}],
+                [
+                    {
+                        "DPCI": "060-15-0108",
+                        "Review ID": "duplicate-review",
+                        "Review Text": "Repeated review",
+                        "Date Posted": "21/10/2026",
+                    },
+                    {
+                        "DPCI": "097-02-2055",
+                        "Review ID": "new-review",
+                        "Review Text": "A new review",
+                        "Date Posted": "22/10/2026",
+                    },
+                ],
+                workbook_path,
+            )
+
+            with pd.ExcelFile(workbook_path) as workbook:
+                products = pd.read_excel(workbook, sheet_name="Products")
+                reviews = pd.read_excel(workbook, sheet_name="Reviews")
+
+        self.assertEqual(products["DPCI"].tolist(), ["097-02-2055", "060-15-0108"])
+        self.assertEqual(
+            products["Item Description"].tolist(),
+            ["Other product", "Updated version"],
+        )
+        self.assertEqual(products["DPCI"].nunique(), len(products))
+        self.assertEqual(reviews["Review ID"].tolist(), ["duplicate-review", "new-review"])
+        self.assertEqual(reviews["Review ID"].nunique(), len(reviews))
 
     def test_main_update_reviews_appends_only_new_current_month_reviews(self):
         with TemporaryDirectory() as directory:
@@ -774,12 +828,15 @@ class ReviewPipelineTests(unittest.TestCase):
                 )
 
             with pd.ExcelFile(workbook_path) as workbook:
+                products = pd.read_excel(workbook, sheet_name="Products")
                 reviews = pd.read_excel(workbook, sheet_name="Reviews")
 
         self.assertEqual(process_mock.call_count, 2)
         self.assertTrue(
             all(call.kwargs["review_limit"] == 2550 for call in process_mock.call_args_list)
         )
+        self.assertEqual(products["DPCI"].nunique(), len(products))
+        self.assertEqual(len(products), 2)
         self.assertEqual(reviews["Review Text"].tolist(), ["Existing review", "New review"])
         self.assertEqual(reviews["Review ID"].tolist(), ["already-saved", "brand-new"])
 
@@ -843,11 +900,10 @@ class ReviewPipelineTests(unittest.TestCase):
             [call.args[1] for call in process_mock.call_args_list],
             ["097-02-2055", "062-18-0006"],
         )
-        self.assertEqual(len(products), 6)
+        self.assertEqual(len(products), 3)
         self.assertEqual(len(reviews), 2)
-        self.assertEqual(products.loc[1, "Website Status"], "Resolved")
-        self.assertEqual(products.loc[3, "Website Status"], "Resolved")
-        self.assertEqual(products.iloc[-2:]["Website Status"].tolist(), ["Found", "Found"])
+        self.assertEqual(products["DPCI"].nunique(), len(products))
+        self.assertEqual(products["Website Status"].tolist(), ["Found", "Found", "Found"])
 
     def test_write_combined_excel_creates_products_and_reviews_sheets(self):
         with TemporaryDirectory() as directory:
@@ -892,12 +948,7 @@ class ReviewPipelineTests(unittest.TestCase):
         )
         self.assertEqual(reviews.loc[0, "Sentiment Score"], 0.8)
         self.assertEqual(reviews.loc[0, "Satisfaction Percentage"], 90.0)
-        dashboard_path = output_path.with_name("combined Dashboard.html")
-        self.assertTrue(dashboard_path.exists())
-        dashboard = dashboard_path.read_text(encoding="utf-8")
-        self.assertIn("Target Product Insights", dashboard)
-        self.assertIn("Comfortable", dashboard)
-        self.assertIn("Review sentiment", dashboard)
+        self.assertFalse(output_path.with_name("combined Dashboard.html").exists())
 
     def test_main_writes_combined_workbook_without_separate_csv_files(self):
         with TemporaryDirectory() as directory:
