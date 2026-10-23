@@ -47,6 +47,10 @@ python -m src.main --dpcis 062-16-0107,062-18-0006,062-18-7656,062-18-3875,062-1
 # This can take several hours when the library contains thousands of DPCIs.
 python -m src.main --all-current-month
 
+# All DPCIs from DPCI LIBRARY.xlsx — export previous calendar month's reviews
+# (up to API maximum per DPCI; the month is selected automatically)
+python -m src.main --last-month
+
 # Recreate the dashboard from this month's existing Excel workbook without scraping
 python -m src.main --create-dashboard
 
@@ -71,7 +75,7 @@ python -m src.main
 | File | Contents |
 |------|----------|
 | `output/reviews_range.xlsx` | Reviews for specified DPCIs and inclusive month range |
-| `output/<Current Month> Target Data.xlsx` | Combined workbook with `Products` and `Reviews` sheets |
+| `output/<Scraped Month> Target Data.xlsx` | Combined workbook with `Products` and `Reviews` sheets; the month follows the selected review month |
 | `output/<Current Month> Target Data Dashboard.html` | Interactive dashboard, generated only when requested with `--create-dashboard` |
 | `output/run.log` | Run log |
 
@@ -90,10 +94,11 @@ The self-contained dashboard offers summary metrics, rating and sentiment charts
 | `--from-month YYYY-MM` | First month to include in the Excel review export; without `--dpci`/`--dpcis`, process DPCIs from `--dpci-library` |
 | `--to-month YYYY-MM` | Last month to include in the Excel review export (inclusive) |
 | `--excel-output PATH` | Excel output path for a month-range export |
-| `--workbook-output PATH` | Output path for the combined workbook (default: `output/<Current Month> Target Data.xlsx`) |
+| `--workbook-output PATH` | Output path for the combined workbook (default: `output/<Scraped Month> Target Data.xlsx`; multi-month ranges include the range in the filename) |
 | `--save-reviews` | Deprecated; review rows are included in the combined workbook automatically |
 | `--current-month` | Export current-month reviews; reads DPCIs from `DPCI LIBRARY.xlsx` unless `--dpci` or `--dpcis` is supplied; defaults to the API maximum review count |
 | `--all-current-month` | Export current-month reviews for every DPCI in `DPCI LIBRARY.xlsx`; defaults to the API maximum per DPCI and cannot be combined with `--dpci` or `--dpcis` |
+| `--last-month` | Export reviews from the previous calendar month for every DPCI in `DPCI LIBRARY.xlsx`; defaults to the API maximum per DPCI and cannot be combined with DPCI selection or other month modes |
 | `--create-dashboard` | Regenerate this month's dashboard from its existing workbook without scraping |
 | `--dashboard-workbook PATH` | Workbook to use with `--create-dashboard` (default: this month's workbook in `output`) |
 | `--retry-errors` | Re-scrape DPCIs whose latest `Website Status` is `Error`; update their product rows and append only new reviews |
@@ -120,6 +125,7 @@ Some DPCIs may return `not_found` if the item is no longer searchable on Target.
 Use `--retry-errors` to retry DPCIs whose latest Products-sheet row has `Website Status` set to `Error`. The latest product data is updated in place, so each DPCI stays unique; existing reviews remain and only new review rows are added. A successful retry changes the product status to `Found`; unsuccessful retries remain `Error`. The command uses current-month reviews and the API maximum by default. It retries the latest error row per DPCI, so a later `Found` result prevents that DPCI from being retried again.
 Use `--update-reviews` for a daily current-month refresh across all DPCIs in the library. It requires the combined workbook to already exist, updates existing product rows in place (one row per DPCI), and appends only reviews not already in the workbook. Existing duplicate product rows are collapsed to the latest row, and duplicate review rows are removed during the update. Review IDs prevent duplicates; for older workbook rows without IDs, DPCI, date, rating, title, and review text are used to detect duplicates. The API maximum is requested by default; pass `--review-limit N` to lower the per-product fetch limit.
 For a month-range export of all DPCIs in `DPCI LIBRARY.xlsx`, pass `--from-month` and `--to-month`; use `--dpci-library PATH` to select a different workbook. To limit the export to chosen products, also pass `--dpcis` (or one `--dpci`). Both month endpoints are included. Matching reviews are written to Excel.
+Use `--last-month` to export only reviews posted during the previous complete calendar month for every DPCI in the library. The month is calculated automatically (including across year boundaries), and the command uses the API maximum per DPCI by default. The combined workbook is named for the month being scraped (for example, `September Target Data.xlsx` when run in October); custom month ranges use the range in the filename. It writes the matching reviews to the combined workbook and `output/reviews_range.xlsx`; use `--excel-output PATH` or `--workbook-output PATH` to choose alternate output paths.
 Reviews are fetched newest-first, up to `--review-limit` per DPCI (default `50`). In current-month mode the default is the API maximum (2,550 reviews per product with the default page size of 50); pass `--review-limit` to set a lower explicit limit. Target supports at most 51 pages of 50 reviews per product.
 The combined workbook's `Reviews` sheet includes the Target `Review ID`, VADER sentiment, normalized score (-1 to +1), and individual satisfaction percentage (0 to 100). Only negative reviews are matched case-insensitively against whole words and contiguous phrases in `DEFECTS LIST.xlsx`; matching `Reason`, source `Sub Category` (shown as `Defect` in the review sheet), and `Main Category` are written in adjacent columns after `Review Text`. Multiple matches are joined with ` | `. Positive and neutral reviews show `-` in all three defect columns. The `Products` sheet includes mean satisfaction per product; positive/negative/neutral percentages are based on the VADER labels.
 
