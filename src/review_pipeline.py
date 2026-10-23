@@ -311,7 +311,13 @@ def process_reviews(raw_reviews: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         prepared.append(
             {
-                "Review ID": str(rev.get("id") or rev.get("external_id") or ""),
+                "Review ID": str(
+                    rev.get("id")
+                    or rev.get("external_id")
+                    or rev.get("reviewId")
+                    or rev.get("review_id")
+                    or ""
+                ),
                 "Rating": rating,
                 "Title": title,
                 "Text": text,

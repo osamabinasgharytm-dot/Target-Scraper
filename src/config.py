@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT_DIR / ".env")
 
-DPCI_CSV = Path(os.getenv("DPCI_CSV", ROOT_DIR / "dpcis.csv"))
 DPCI_LIBRARY_XLSX = Path(
     os.getenv("DPCI_LIBRARY_XLSX", ROOT_DIR / "DPCI LIBRARY.xlsx")
 )
@@ -61,13 +60,13 @@ PRODUCT_COLUMNS = [
     "Top Remark",
     "Program",
     "Status",
+    "Website Status",
     # "Run Date",
 ]
 
 REVIEW_COLUMNS = [
     "DPCI",
-    # "TCIN",
-    # "Review ID",
+    "Review ID",
     "Review Rating",
     "Review Title",
     "Review Text",

@@ -1,4 +1,4 @@
-"""Load, validate, and dedupe DPCI identifiers from CSV."""
+"""Validate and deduplicate DPCI identifiers, or load them from a legacy CSV."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ _DPCI_RE = re.compile(DPCI_PATTERN)
 
 
 def load_dpcis(
-    csv_path: Path,
+    csv_path: Path | None = None,
     *,
     limit: int | None = None,
     only: str | list[str] | None = None,
@@ -23,11 +23,11 @@ def load_dpcis(
     """Return a clean, deduped list of DPCIs.
 
     Args:
-        csv_path: Path to CSV with a DPCI column.
+        csv_path: Optional legacy CSV path with a DPCI column. Omit when `only` is set.
         limit: Optional max count after validation/dedupe (for test runs).
         only: If set, return only these DPCIs (each must be valid format).
     """
-    if only:
+    if only is not None:
         requested = [only] if isinstance(only, str) else only
         selected: list[str] = []
         seen: set[str] = set()
@@ -44,6 +44,8 @@ def load_dpcis(
             selected = selected[:limit]
         return selected
 
+    if csv_path is None:
+        raise ValueError("Provide a CSV path or an explicit DPCI list")
     if not csv_path.exists():
         raise FileNotFoundError(f"DPCI CSV not found: {csv_path}")
 
